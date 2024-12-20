@@ -52,7 +52,7 @@ parser.add_argument("--cvd", type=str, default='deutan')
 # C-Glow parameters
 parser.add_argument("--x_bins", type=float, default=256.0)  # noise setting, to make input continues-like
 parser.add_argument("--y_bins", type=float, default=256.0)
-parser.add_argument("--prefix", type=str, default='K32_b64')
+parser.add_argument("--prefix", type=str, default='vit_cn1')
 args = parser.parse_args()
 
 print(args) # show all parameters
