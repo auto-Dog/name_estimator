@@ -39,8 +39,8 @@ num_classes = 6
 # argparse here
 parser = argparse.ArgumentParser(description='COLOR-ENHANCEMENT')
 parser.add_argument('--lr',type=float, default=1e-4)
-parser.add_argument('--patch',type=int, default=4)
-parser.add_argument('--size',type=int, default=32)
+parser.add_argument('--patch',type=int, default=16)
+parser.add_argument('--size',type=int, default=512)
 parser.add_argument('--t', type=float, default=0.5)
 parser.add_argument('--save_interval', type=int, default=5)
 parser.add_argument('--test_fold','-f',type=int)
@@ -50,21 +50,11 @@ parser.add_argument('--epoch', type=int, default=50)
 parser.add_argument('--dataset', type=str, default='/work/mingjundu/imagenet100k/')
 parser.add_argument("--cvd", type=str, default='deutan')
 # C-Glow parameters
-parser.add_argument("--x_size", type=str, default="(3,32,32)")
-parser.add_argument("--y_size", type=str, default="(3,32,32)")
-parser.add_argument("--x_hidden_channels", type=int, default=128)
-parser.add_argument("--x_hidden_size", type=int, default=32)
-parser.add_argument("--y_hidden_channels", type=int, default=256)
-parser.add_argument("-K", "--flow_depth", type=int, default=8)
-parser.add_argument("-L", "--num_levels", type=int, default=3)
-parser.add_argument("--learn_top", type=bool, default=False)
 parser.add_argument("--x_bins", type=float, default=256.0)  # noise setting, to make input continues-like
 parser.add_argument("--y_bins", type=float, default=256.0)
 parser.add_argument("--prefix", type=str, default='K32_b64')
 args = parser.parse_args()
 
-args.x_size = eval(args.x_size)
-args.y_size = eval(args.y_size)
 print(args) # show all parameters
 ### write model configs here
 save_root = './run'
@@ -95,8 +85,7 @@ valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize*4,shuff
 # inferenceloader = torch.utils.data.DataLoader(inferenceset,batch_size=args.batchsize,shuffle = False,)
 # trainval_loader = {'train' : trainloader, 'valid' : validloader}
 
-# model = ViT('ColorViT', pretrained=False,image_size=32,patches=4,num_layers=6,num_heads=6,num_classes=4*4*3)
-model = ViT(args)
+model = ViT('ColorViT', pretrained=False,image_size=args.size,patches=args.patch,num_layers=6,num_heads=6)
 # model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
 model = model.cuda()
 
