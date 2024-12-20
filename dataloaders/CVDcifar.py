@@ -6,6 +6,8 @@ from torch.utils.data import DataLoader, Dataset
 import torch
 import os
 from typing import Any, Callable, Optional, Tuple
+import sys
+sys.path.append("..")   # debug
 from utils.cvdObserver import cvdSimulateNet
 from PIL import Image
 import os
@@ -71,7 +73,7 @@ class CVDImageNet(ImageFolder):
             ]
         )
         self.cvd_observer = cvdSimulateNet(cvd)
-        self.color_name_embeddings = pd.read_csv('basic_color_embeddings.csv')
+        self.color_name_embeddings = pd.read_csv('basic_color_embeddings.csv',index_col='Name')
 
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         """
@@ -115,7 +117,7 @@ class CVDImageNet(ImageFolder):
         }
 
         def classify_color(rgb):
-            # rgb = torch.tensor(rgb)  # RGB tuple to tensor
+            rgb = rgb.numpy()  # RGB tensor to numpy
             min_distance = float('inf')
             closest_category = None
             category_map = {
@@ -135,7 +137,7 @@ class CVDImageNet(ImageFolder):
             # iterate all color types
             for category, color_list in color_categories.items():
                 # calculate norm as distance between input color and template colors
-                distances = torch.linalg.norm(color_list - rgb, dim=1)
+                distances = np.linalg.norm(color_list - rgb, axis=1)
                 min_distance_for_category = np.min(distances)
                 
                 if min_distance_for_category < min_distance:
@@ -144,9 +146,9 @@ class CVDImageNet(ImageFolder):
 
             return closest_category,category_map.get(closest_category, -1)  # return color words and index
         
-        color_patch_mean = torch.mean(color_patch,dim=[1,2])
+        color_patch_mean = torch.mean(color_patch,dim=[1,2])*255
         color_name,color_index = classify_color(color_patch_mean)
-        color_embedding = self.color_name_embeddings.iloc[color_name].to_numpy()
+        color_embedding = self.color_name_embeddings.loc[color_name].to_numpy()
         color_embedding = torch.from_numpy(color_embedding)
 
         return color_embedding, color_name
@@ -158,7 +160,7 @@ class CVDPlace(CVDImageNet):
 
 if __name__ == '__main__':
     from torchvision.transforms import ToPILImage
-    CVD_set = CVDImageNet('/work/mingjundu/imagenet100k/')
+    CVD_set = CVDImageNet('/work/mingjundu/imagenet100k/',split='imagenet_subtrain')
     CVD_loader = torch.utils.data.DataLoader(CVD_set,batch_size=1,shuffle = True)
     for outputs in CVD_loader:
         img_ori = outputs[2]
@@ -166,8 +168,8 @@ if __name__ == '__main__':
         patch_ori_name = outputs[4]
         patch_ori_emb = outputs[5]
         show = ToPILImage()
-        show(img_ori).save('img_ori.png')
-        show(patch_ori).save('patch_ori.png')
+        show(img_ori[0]).save('img_ori.png')
+        show(patch_ori[0]).save('patch_ori.png')
         print('color name:',patch_ori_name)
         break
     
