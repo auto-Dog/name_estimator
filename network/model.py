@@ -123,7 +123,7 @@ class ViT(nn.Module):
 
         # Regression head
         self.norm = nn.LayerNorm(pre_logits_size, eps=1e-6)
-        self.fc = nn.Linear(pre_logits_size, num_classes)
+        # self.fc = nn.Linear(pre_logits_size, num_classes)
         self.sigmoid_out = nn.Sigmoid()
 
         # Initialize weights
