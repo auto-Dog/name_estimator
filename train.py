@@ -85,11 +85,12 @@ valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize*4,shuff
 # inferenceloader = torch.utils.data.DataLoader(inferenceset,batch_size=args.batchsize,shuffle = False,)
 # trainval_loader = {'train' : trainloader, 'valid' : validloader}
 
-model = ViT('ColorViT', pretrained=False,image_size=args.size,patches=args.patch,num_layers=6,num_heads=6)
+model = ViT('ColorViT', pretrained=False,image_size=args.size,patches=args.patch,num_layers=6,num_heads=6,num_classes = 1000)
 # model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
 model = model.cuda()
 
 criterion = colorLoss()
+
 # optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=0.1)
 
 # Update 11.15
@@ -113,6 +114,8 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, epoch):
     model.train()
     loss_logger = 0.
     logger.update_step()
+    label_list = []
+    pred_list  = []
     for img, ci_patch, img_target, _,patch_color_name, _  in tqdm(trainloader,ascii=True,ncols=60):
         optimizer.zero_grad()
         img = img.cuda()
@@ -120,6 +123,9 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, epoch):
         outs = model(add_input_noise(img,bins=args.x_bins),
                          add_input_noise(ci_patch,bins=args.y_bins))
         loss_batch = criterion(outs,patch_color_name)
+        pred,label = criterion.classification(outs,patch_color_name)
+        label_list.extend(label.cpu().detach().tolist())
+        pred_list.extend(pred.cpu().detach().tolist())
         # img_target = img_target.cuda()
         # print("opt tensor:",out)
         # ci_rgb = ci_rgb.cuda()
@@ -137,27 +143,30 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, epoch):
 
     loss_logger /= len(trainloader)
     print("Train loss:",loss_logger)
-    log_metric('Train', logger,loss_logger)
+    log_metric('Train',logger,loss_logger,label_list,pred_list)
     if not (logger.global_step % args.save_interval):
         logger.save(model,optimizer, lrsch, criterion)
         
 def validate(testloader, model, criterion, optimizer, lrsch, logger, args):
     model.eval()
     loss_logger = 0.
-
+    label_list = []
+    pred_list  = []
     for img, ci_patch, img_target, _,patch_color_name, _ in tqdm(testloader,ascii=True,ncols=60):
         with torch.no_grad():
-            outs,nll = model(img.cuda(),ci_patch.cuda()) 
+            outs = model(img.cuda(),ci_patch.cuda()) 
         # ci_rgb = ci_rgb.cuda()
         # img_target = img_target.cuda()
         # print("label:",label)
         loss_batch = criterion(outs,patch_color_name)
         loss_logger += loss_batch.item()    # 显示全部loss
-
+        pred,label = criterion.classification(outs,patch_color_name)
+        label_list.extend(label.cpu().detach().tolist())
+        pred_list.extend(pred.cpu().detach().tolist())
     loss_logger /= len(testloader)
     print("Val loss:",loss_logger)
 
-    acc = log_metric('Val', logger,loss_logger)
+    acc = log_metric('Val', logger,loss_logger,label_list,pred_list)
 
     return acc, model.state_dict()
 
@@ -230,12 +239,23 @@ def validate(testloader, model, criterion, optimizer, lrsch, logger, args):
 #     plt.imshow(img_all_array_big)
 #     plt.savefig('./run/'+f'highres_sample_{args.prefix}_e{epoch}.png')
 
-def log_metric(prefix, logger, loss):
+def log_metric(prefix, logger, loss, target, pred):
+    cls_report = classification_report(target, pred, output_dict=True, zero_division=0)
+    acc = accuracy_score(target, pred)
+    # auc = roc_auc_score(target, prob)
     logger.log_scalar(prefix+'/loss',loss,print=False)
-    return 1/loss   # 越大越好
+    # logger.log_scalar(prefix+'/AUC',auc,print=True)
+    logger.log_scalar(prefix+'/'+'Acc', acc, print= True)
+    logger.log_scalar(prefix+'/'+'Pos_precision', cls_report['weighted avg']['precision'], print= True)
+    # logger.log_scalar(prefix+'/'+'Neg_precision', cls_report['0']['precision'], print= True)
+    logger.log_scalar(prefix+'/'+'Pos_recall', cls_report['weighted avg']['recall'], print= True)
+    # logger.log_scalar(prefix+'/'+'Neg_recall', cls_report['0']['recall'], print= True)
+    logger.log_scalar(prefix+'/'+'Pos_F1', cls_report['weighted avg']['f1-score'], print= True)
+    logger.log_scalar(prefix+'/loss',loss,print=False)
+    return acc   # 越大越好
 
 testing = validate
-auc = 0
+best_score = 0
 
 if args.test == True:
     # finaltestset = CVDcifar('./',train=False,download=True)
@@ -251,6 +271,6 @@ else:
         train(trainloader, model,criterion,optimizer,lrsch,logger,args,i)
         score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args)
         # sample_enhancement(model,None,i,args)
-        if score > auc:
-            auc = score
+        if score > best_score:
+            best_score = score
             torch.save(model_save, pth_location)

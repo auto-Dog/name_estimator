@@ -11,13 +11,15 @@ class colorLoss(nn.Module):
         df = pd.read_csv('basic_color_embeddings.csv',index_col='Name')
         self.color_name_embeddings_dict = {}
         all_embeddings = []
+        self.all_names = []
         for index, row in df.iterrows():
             single_row = row.to_numpy() / np.linalg.norm(row.to_numpy())    # IMPORTANT: embedding module is around 10, should undergo L2 NORM
-            self.color_name_embeddings_dict[index] = torch.tensor(single_row).cuda()    
+            self.color_name_embeddings_dict[index] = torch.tensor(single_row).float().cuda()    
             # print(index,np.linalg.norm(single_row)) # debug
             all_embeddings.append(single_row)
+            self.all_names.append(index)
         self.all_embeddings_list = all_embeddings
-        self.all_embeddings = torch.tensor(np.array(all_embeddings)).cuda()   # M colors, M x 768
+        self.all_embeddings = torch.tensor(np.array(all_embeddings)).float().cuda()   # M colors, M x 768
 
     def forward(self,x:torch.Tensor,x_names:tuple):
         embedding_gt = [self.color_name_embeddings_dict[x_name_i] for i,x_name_i in enumerate(x_names)]
@@ -45,6 +47,13 @@ class colorLoss(nn.Module):
         total_loss = -torch.log(numerator_similarity/all_similarity)
         total_loss = total_loss.mean()
         return total_loss
+
+    def classification(self,x:torch.Tensor,x_names:tuple):
+        all_similarity = torch.matmul(x,self.all_embeddings.T)  # B x classes
+        val,class_index = torch.max(torch.exp(all_similarity),dim=1)    # Nx1
+        class_index_gt = [self.all_names.index(x_name_i) for i,x_name_i in enumerate(x_names)]   # get GT index of color
+        class_index_gt = torch.tensor(class_index_gt).float().cuda()
+        return class_index,class_index_gt
 
 if __name__ == '__main__':
     criteria = colorLoss()
