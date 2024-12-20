@@ -6,8 +6,8 @@ from torch.utils.data import DataLoader, Dataset
 import torch
 import os
 from typing import Any, Callable, Optional, Tuple
-import sys
-sys.path.append("..")   # debug
+# import sys
+# sys.path.append("..")   # debug
 from utils.cvdObserver import cvdSimulateNet
 from PIL import Image
 import os
@@ -161,7 +161,7 @@ class CVDPlace(CVDImageNet):
 if __name__ == '__main__':
     from torchvision.transforms import ToPILImage
     CVD_set = CVDImageNet('/work/mingjundu/imagenet100k/',split='imagenet_subtrain')
-    CVD_loader = torch.utils.data.DataLoader(CVD_set,batch_size=1,shuffle = True)
+    CVD_loader = torch.utils.data.DataLoader(CVD_set,batch_size=10,shuffle = True)
     for outputs in CVD_loader:
         img_ori = outputs[2]
         patch_ori = outputs[3]
