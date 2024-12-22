@@ -86,7 +86,7 @@ valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize,shuffle
 # trainval_loader = {'train' : trainloader, 'valid' : validloader}
 
 model = ViT('ColorViT', pretrained=False,image_size=args.size,patches=args.patch,num_layers=6,num_heads=6,num_classes = 1000)
-# model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
+model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
 model = model.cuda()
 
 criterion = colorLoss()
