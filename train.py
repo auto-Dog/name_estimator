@@ -242,15 +242,16 @@ def validate(testloader, model, criterion, optimizer, lrsch, logger, args):
 def log_metric(prefix, logger, loss, target, pred):
     cls_report = classification_report(target, pred, output_dict=True, zero_division=0)
     acc = accuracy_score(target, pred)
+    print(cls_report)   # all class information
     # auc = roc_auc_score(target, prob)
     logger.log_scalar(prefix+'/loss',loss,print=False)
     # logger.log_scalar(prefix+'/AUC',auc,print=True)
     logger.log_scalar(prefix+'/'+'Acc', acc, print= True)
-    logger.log_scalar(prefix+'/'+'Pos_precision', cls_report['weighted avg']['precision'], print= True)
+    logger.log_scalar(prefix+'/'+'Pos_precision', cls_report['weighted avg']['precision'], print=False)
     # logger.log_scalar(prefix+'/'+'Neg_precision', cls_report['0']['precision'], print= True)
-    logger.log_scalar(prefix+'/'+'Pos_recall', cls_report['weighted avg']['recall'], print= True)
+    logger.log_scalar(prefix+'/'+'Pos_recall', cls_report['weighted avg']['recall'], print=False)
     # logger.log_scalar(prefix+'/'+'Neg_recall', cls_report['0']['recall'], print= True)
-    logger.log_scalar(prefix+'/'+'Pos_F1', cls_report['weighted avg']['f1-score'], print= True)
+    logger.log_scalar(prefix+'/'+'Pos_F1', cls_report['weighted avg']['f1-score'], print=False)
     logger.log_scalar(prefix+'/loss',loss,print=False)
     return acc   # 越大越好
 
