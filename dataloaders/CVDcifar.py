@@ -151,7 +151,7 @@ class CVDImageNet(ImageFolder):
         color_embedding = self.color_name_embeddings.loc[color_name].to_numpy()
         color_embedding = torch.from_numpy(color_embedding)
         color_index = torch.tensor(color_index,dtype=torch.long)
-        return color_embedding, color_index
+        return color_embedding, color_name
 
     
 class CVDPlace(CVDImageNet):

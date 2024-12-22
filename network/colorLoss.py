@@ -21,12 +21,13 @@ class colorLoss(nn.Module):
         self.all_embeddings_list = all_embeddings
         self.all_embeddings = torch.tensor(np.array(all_embeddings)).float().cuda()   # M colors, M x 768
 
-    def forward(self,x:torch.Tensor,x_names:torch.Tensor):
-        # # use str names
-        # embedding_gt = [self.color_name_embeddings_dict[x_name_i] for i,x_name_i in enumerate(x_names)]  
-        # embedding_gt = torch.vstack(embedding_gt)    # N x 768
-        # OR use index
-        embedding_gt = self.all_embeddings[x_names]     # N x 768
+    def forward(self,x:torch.Tensor,x_names:tuple):
+        # use str names
+        embedding_gt = [self.color_name_embeddings_dict[x_name_i] for i,x_name_i in enumerate(x_names)]  
+        embedding_gt = torch.vstack(embedding_gt)    # N x 768
+        # # OR use index
+        # embedding_gt = self.all_embeddings[x_names]     # N x 768
+        
         # print('X shape:',x.shape)    # debug
         # print('Nx768 shape:',embedding_gt.shape)    # debug
         # print('Mx768 shape:',self.all_embeddings.shape)    # debug
@@ -52,15 +53,15 @@ class colorLoss(nn.Module):
         total_loss = total_loss.mean()
         return total_loss
 
-    def classification(self,x:torch.Tensor,x_names:torch.Tensor):
+    def classification(self,x:torch.Tensor,x_names:tuple):
         '''given N embeddings, return their cloest color type in index form'''
         all_similarity = torch.matmul(x,self.all_embeddings.T)  # B x classes
         val,class_index = torch.max(torch.exp(all_similarity),dim=1)    # Nx1
-        # # use str names
-        # class_index_gt = [self.all_names.index(x_name_i) for i,x_name_i in enumerate(x_names)]   # get GT index of color
-        # class_index_gt = torch.tensor(class_index_gt,dtype=torch.long, device='cuda')
-        # OR use index
-        class_index_gt = x_names
+        # use str names
+        class_index_gt = [self.all_names.index(x_name_i) for i,x_name_i in enumerate(x_names)]   # get GT index of color
+        class_index_gt = torch.tensor(class_index_gt,dtype=torch.long, device='cuda')
+        # # OR use index
+        # class_index_gt = x_names
         return class_index,class_index_gt
 
 if __name__ == '__main__':
