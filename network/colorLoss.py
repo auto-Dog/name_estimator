@@ -59,7 +59,7 @@ class colorLoss(nn.Module):
         val,class_index = torch.max(torch.exp(all_similarity),dim=1)    # Nx1
         # use str names
         class_index_gt = [self.all_names[x_name_i] for i,x_name_i in enumerate(x_names)]   # get GT index of color
-        class_index_gt = torch.vstack[class_index_gt]
+        class_index_gt = torch.vstack(class_index_gt)
         # # OR use index
         # class_index_gt = x_names
         return class_index,class_index_gt
