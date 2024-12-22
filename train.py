@@ -121,15 +121,15 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, epoch):
         optimizer.zero_grad()
         img = img.cuda()
         ci_patch = ci_patch.cuda()
-        st_time = time.time()
-        print('Timer now')
+        # st_time = time.time()   # debug
+        # print('Timer now')  # debug
         outs = model(add_input_noise(img,bins=args.x_bins),
                          add_input_noise(ci_patch,bins=args.y_bins))
-        print('Model use:',time.time()-st_time)
+        # print('Model use:',time.time()-st_time) # debug
         loss_batch = criterion(outs,patch_color_name)
-        print('Loss Func. use:',time.time()-st_time)
+        # print('Loss Func. use:',time.time()-st_time)    # debug
         pred,label = criterion.classification(outs,patch_color_name)
-        print('Classification use:',time.time()-st_time)
+        # print('Classification use:',time.time()-st_time)    # debug
         label_list.extend(label.cpu().detach().tolist())
         pred_list.extend(pred.cpu().detach().tolist())
         # img_target = img_target.cuda()
