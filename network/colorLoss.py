@@ -23,7 +23,7 @@ class colorLoss(nn.Module):
 
     def forward(self,x:torch.Tensor,x_names:tuple):
         embedding_gt = [self.color_name_embeddings_dict[x_name_i] for i,x_name_i in enumerate(x_names)]
-        embedding_gt = torch.vstack(embedding_gt).cuda()    # N x 768
+        embedding_gt = torch.vstack(embedding_gt)    # N x 768
         # print('X shape:',x.shape)    # debug
         # print('Nx768 shape:',embedding_gt.shape)    # debug
         # print('Mx768 shape:',self.all_embeddings.shape)    # debug
@@ -31,7 +31,8 @@ class colorLoss(nn.Module):
         all_similarity = torch.sum(torch.exp(all_similarity)/self.tau,dim=1)    # Nx1
         
         def tensor_row_dot(tensor1,tensor2):
-            # Convert each row into a 1x768 matrix
+            '''dot multiply on each row vector, whose indexes are the same'''
+            # Convert each row into a 1x768/768x1 matrix
             tensor1 = tensor1.unsqueeze(1)  # Become nx1x768
             tensor2 = tensor2.unsqueeze(2)  # Become nx768x1
 
@@ -49,10 +50,11 @@ class colorLoss(nn.Module):
         return total_loss
 
     def classification(self,x:torch.Tensor,x_names:tuple):
+        '''given N embeddings, return their cloest color type in index form'''
         all_similarity = torch.matmul(x,self.all_embeddings.T)  # B x classes
         val,class_index = torch.max(torch.exp(all_similarity),dim=1)    # Nx1
         class_index_gt = [self.all_names.index(x_name_i) for i,x_name_i in enumerate(x_names)]   # get GT index of color
-        class_index_gt = torch.tensor(class_index_gt).float().cuda()
+        class_index_gt = torch.tensor(class_index_gt,dtype=torch.long, device='cuda')
         return class_index,class_index_gt
 
 if __name__ == '__main__':
