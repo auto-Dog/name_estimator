@@ -79,8 +79,8 @@ valset = CVDImageNet(args.dataset,split='imagenet_subval',patch_size=args.patch,
 # trainset, valset = torch.utils.data.random_split(trainset, [train_size, val_size])
 print(f'Dataset Information: Training Samples:{len(trainset)}, Validating Samples:{len(valset)}')
 
-trainloader = torch.utils.data.DataLoader(trainset,batch_size=args.batchsize,shuffle = True,num_workers=8)
-valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize,shuffle = True,num_workers=8)
+trainloader = torch.utils.data.DataLoader(trainset,batch_size=args.batchsize,shuffle = True,num_workers=4)
+valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize,shuffle = True,num_workers=4)
 # testloader = torch.utils.data.DataLoader(testset,batch_size=args.batchsize,shuffle = False)
 # inferenceloader = torch.utils.data.DataLoader(inferenceset,batch_size=args.batchsize,shuffle = False,)
 # trainval_loader = {'train' : trainloader, 'valid' : validloader}
