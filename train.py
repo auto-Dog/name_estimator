@@ -17,8 +17,7 @@ from PIL import Image
 
 from utils.logger import Logger
 from tqdm import tqdm
-from dataloaders.pic_data import ImgDataset
-from dataloaders.CVDcifar import CVDcifar,CVDImageNet,CVDPlace
+from dataloaders.CVDDS import CVDcifar,CVDImageNet,CVDPlace
 from network import ViT,colorLoss
 from utils.cvdObserver import cvdSimulateNet
 from utils.conditionP import conditionP

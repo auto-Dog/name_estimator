@@ -32,14 +32,14 @@ class colorLoss(nn.Module):
         # print('Nx768 shape:',embedding_gt.shape)    # debug
         # print('Mx768 shape:',self.all_embeddings.shape)    # debug
         all_similarity = torch.matmul(x,self.all_embeddings.T)
-        all_similarity = torch.sum(torch.exp(all_similarity)/self.tau,dim=1)    # Nx1
+        print('dominator:',torch.exp(all_similarity/self.tau))  # debug
+        all_similarity = torch.sum(torch.exp(all_similarity/self.tau),dim=1)    # Nx1
         
         def tensor_row_dot(tensor1,tensor2):
             '''dot multiply on each row vector, whose indexes are the same'''
             # Convert each row into a 1x768/768x1 matrix
             tensor1 = tensor1.unsqueeze(1)  # Become nx1x768
             tensor2 = tensor2.unsqueeze(2)  # Become nx768x1
-
             # Perform batch matrix multiplication
             result = torch.bmm(tensor1, tensor2)  # Result is nx1x1
 
@@ -48,7 +48,7 @@ class colorLoss(nn.Module):
             return result
 
         numerator_similarity = torch.exp(tensor_row_dot(x,embedding_gt)/self.tau)  # Nx1
-        # print(numerator_similarity,all_similarity)  # debug
+        print('numerator:',numerator_similarity)  # debug
         total_loss = -torch.log(numerator_similarity/all_similarity)
         total_loss = total_loss.mean()
         return total_loss
@@ -65,13 +65,14 @@ class colorLoss(nn.Module):
         return class_index,class_index_gt
 
 if __name__ == '__main__':
-    criteria = colorLoss()
+    criteria = colorLoss(tau=1.0)
     x = criteria.all_embeddings_list[2]  # blue
     x[10:100] = 0.
-    x = torch.tensor(x).float().cuda().unsqueeze(0) # 1x768
-    colors = torch.tensor([2])
+    x = torch.tensor(x).float().cuda().repeat(2,1) # 2x768
+    # x = 10*torch.randn(2,768).float().cuda()
+    colors = ('Blue','Blue')    # 2.45
     loss = criteria(x,colors)
     print('loss B-B',loss)
-    colors = torch.tensor([0])
+    colors = ('Red','Blue')  # 2.47
     loss = criteria(x,colors)
     print('loss B-R',loss)

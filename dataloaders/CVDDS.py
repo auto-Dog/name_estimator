@@ -12,6 +12,7 @@ from utils.cvdObserver import cvdSimulateNet
 from PIL import Image
 import os
 import pandas as pd
+import json
 
 class CVDcifar(CIFAR10):
     def __init__(        
@@ -74,6 +75,7 @@ class CVDImageNet(ImageFolder):
         )
         self.cvd_observer = cvdSimulateNet(cvd)
         self.color_name_embeddings = pd.read_csv('basic_color_embeddings.csv',index_col='Name')
+        
 
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         """
@@ -94,27 +96,13 @@ class CVDImageNet(ImageFolder):
         patch_color_embedding,patch_color_name = self.getEmbedding(patch_target) # get color names   # debug
         patch = self.cvd_observer(patch_target)
         img = self.cvd_observer(img)
+        with open('color_dict.json','r')as f: 
+            self.color_categories = json.load(f)
 
         return img, patch, img_target, patch_target, patch_color_name, patch_color_embedding # CVD image, CVD patch, image target, patch target
     
     def getEmbedding(self,color_patch):
         '''Given a color patch, return its color type number and embedding'''
-        
-        # pre defined color names and their typical values
-        color_categories = {
-            'Red': np.array([(255, 0, 0), (255, 99, 71), (255, 69, 0)]), 
-            'Green': np.array([(0, 255, 0), (34, 139, 34), (0, 128, 0)]), 
-            'Blue': np.array([(0, 0, 255), (30, 144, 255), (70, 130, 180)]), 
-            'Black': np.array([(0,0,0)]),
-            'White': np.array([(255,255,255)]),
-            'Gray': np.array([(192,192,192)]),
-            'Cyan': np.array([(0,255,255)]),
-            'Yellow': np.array([(255, 255, 0), (255, 255, 102), (255, 255, 51)]), 
-            'Orange': np.array([(255, 165, 0), (255, 99, 71), (255, 140, 0)]), 
-            'Pink': np.array([(255, 192, 203), (255, 105, 180), (255, 20, 147)]), 
-            'Purple': np.array([(128, 0, 128), (160, 32, 240), (138, 43, 226)]), 
-            'Brown': np.array([(139, 69, 19), (160, 82, 45), (165, 42, 42)]) 
-        }
 
         def classify_color(rgb):
             rgb = rgb.numpy()  # RGB tensor to numpy
@@ -135,7 +123,8 @@ class CVDImageNet(ImageFolder):
                 'Brown': 11
             }
             # iterate all color types
-            for category, color_list in color_categories.items():
+            for category, color_list in self.color_categories.items():
+                color_list = np.array(color_list)
                 # calculate norm as distance between input color and template colors
                 distances = np.linalg.norm(color_list - rgb, axis=1)
                 min_distance_for_category = np.min(distances)
