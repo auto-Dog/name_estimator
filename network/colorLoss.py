@@ -51,8 +51,9 @@ class colorLoss(nn.Module):
         numerator_similarity = torch.exp(tensor_row_dot(x,embedding_gt)/self.tau)  # Nx1
         # print('numerator:',numerator_similarity)  # debug
         contras_loss = -torch.log(numerator_similarity/all_similarity)
-        mse_loss = self.mseLoss(x,embedding_gt)
-        total_loss = contras_loss.mean() + mse_loss
+        mse_loss = self.mseLoss(x,embedding_gt)*x.shape[0]
+        total_loss = mse_loss
+        # total_loss = contras_loss.mean() + mse_loss
         return total_loss
 
     def classification(self,x:torch.Tensor,x_names:tuple):
@@ -69,9 +70,10 @@ class colorLoss(nn.Module):
 if __name__ == '__main__':
     criteria = colorLoss()
     x = criteria.all_embeddings_list[2]  # blue
-    x[10:100] = 0.
+    # x = (x+criteria.all_embeddings_list[0])/2
+    # x[10:100] = 0.
     x = torch.tensor(x).float().cuda().repeat(2,1) # 2x768
-    x = 10*torch.randn(2,768).float().cuda()
+    # x = 10*torch.randn(2,768).float().cuda()
     colors = ('Blue','Blue')    # 2.45
     loss = criteria(x,colors)
     print('loss B-B',loss)
