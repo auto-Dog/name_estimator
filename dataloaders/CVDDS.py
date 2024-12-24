@@ -75,8 +75,9 @@ class CVDImageNet(ImageFolder):
         )
         self.cvd_observer = cvdSimulateNet(cvd)
         self.color_name_embeddings = pd.read_csv('basic_color_embeddings.csv',index_col='Name')
+        with open('color_dict.json','r')as f: 
+            self.color_categories = json.load(f)
         
-
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         """
         Args:
@@ -96,8 +97,6 @@ class CVDImageNet(ImageFolder):
         patch_color_embedding,patch_color_name = self.getEmbedding(patch_target) # get color names   # debug
         patch = self.cvd_observer(patch_target)
         img = self.cvd_observer(img)
-        with open('color_dict.json','r')as f: 
-            self.color_categories = json.load(f)
 
         return img, patch, img_target, patch_target, patch_color_name, patch_color_embedding # CVD image, CVD patch, image target, patch target
     
