@@ -63,6 +63,7 @@ class CVDcifar(CIFAR10):
     
 class CVDImageNet(ImageFolder):
     def __init__(self, root: str, split: str = "train", patch_size=16, img_size=512, cvd='deutan',**kwargs: Any) -> None:
+        self.root = root
         self.image_size = img_size
         self.patch_size = patch_size
         self.my_transform = transforms.Compose(
@@ -89,7 +90,7 @@ class CVDImageNet(ImageFolder):
         }
         self.category_names = list(self.category_map.keys())
         try:
-            self.data_label_df = pd.read_csv('dataloaders/'+split+'_label.csv')
+            self.data_label_df = pd.read_csv('dataloaders/'+split+'_label.csv',index_col=0)
         except:
             raise IOError('Label file does not exist. Run dataloaders/make_data.py')
 
@@ -104,8 +105,8 @@ class CVDImageNet(ImageFolder):
         Returns:
             tuple: (sample, target) where target is class_index of the target class.
         """
-        [path, patch_id, target] = self.data_label_df[index].to_list()  # names form ImageNet -> ImageFolder -> DatasetFolder
-        sample = self.loader(path)
+        [path, patch_id, target] = self.data_label_df.loc[index].to_list()  # names form ImageNet -> ImageFolder -> DatasetFolder
+        sample = self.loader(os.path.join(self.root,path))
 
         img = self.my_transform(sample)
         img_target = img.clone()
