@@ -52,8 +52,8 @@ class colorLoss(nn.Module):
         # print('numerator:',numerator_similarity)  # debug
         contras_loss = -torch.log(numerator_similarity/all_similarity)
         mse_loss = self.mseLoss(x,embedding_gt)*x.shape[0]
-        total_loss = mse_loss
-        # total_loss = contras_loss.mean() + mse_loss
+        # total_loss = mse_loss
+        total_loss = contras_loss.mean() + mse_loss
         return total_loss
 
     def classification(self,x:torch.Tensor,x_names:tuple):
