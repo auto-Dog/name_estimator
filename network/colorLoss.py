@@ -73,9 +73,9 @@ if __name__ == '__main__':
     criteria = colorLoss()
     x = criteria.all_embeddings_list[2]  # blue
     # x = (x+criteria.all_embeddings_list[0])/2
-    # x[10:100] = 0.
+    x[10:100] = 0.
     x = torch.tensor(x).float().cuda().repeat(2,1) # 2x768
-    # x = 10*torch.randn(2,768).float().cuda()
+    x = torch.randn(2,768).float().cuda()
     colors = ('Blue','Blue')    # 2.45
     loss = criteria(x,colors)
     print('loss B-B',loss)

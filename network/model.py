@@ -164,7 +164,7 @@ class ViT(nn.Module):
         b, c, h, w = x.shape
         x = self.patch_embedding(x)  # b,d,gh,gw
         x = x.flatten(2).transpose(1, 2)  # b,gh*gw,d
-        x_ci = self.ci_patch_embedding(x_color_i).flatten(2).transpose(1, 2)   # b,1,d  # new, for colorvit
+        x_ci = self.patch_embedding(x_color_i).flatten(2).transpose(1, 2)   # b,1,d  # new, for colorvit    # debug: use same conv for accurate attention
         x = torch.cat((x,x_ci),dim=1) # bound I and c_i # new, for colorvit
 
         if hasattr(self, 'class_token'):
