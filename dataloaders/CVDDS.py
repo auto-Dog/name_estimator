@@ -75,8 +75,19 @@ class CVDImageNet(ImageFolder):
         )
         self.cvd_observer = cvdSimulateNet(cvd)
         self.color_name_embeddings = pd.read_csv('basic_color_embeddings.csv',index_col='Name')
-        with open('color_dict.json','r')as f: 
-            self.color_categories = json.load(f)
+        df = pd.read_excel('name_table.xlsx',index_col='Colorname')  # 替换为您的文件路径
+        # 初始化字典
+        self.color_names = []
+        color_value = []
+        # 遍历DataFrame中的每一行
+        for index, row in df.iterrows():
+            # 获取颜色分类
+            self.color_names.append(row['Classification'])
+            # 将RGB字符串转换为数组
+            rgb_array = [int(x) for x in row['RGB'].split(',')]
+            color_value.append(rgb_array)
+
+        self.color_value_array = np.array(color_value)
         
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         """
@@ -102,11 +113,9 @@ class CVDImageNet(ImageFolder):
     
     def getEmbedding(self,color_patch):
         '''Given a color patch, return its color type number and embedding'''
-
         def classify_color(rgb):
             rgb = rgb.numpy()  # RGB tensor to numpy
-            min_distance = float('inf')
-            closest_category = None
+            # calculate norm as distance between input color and template colors
             category_map = {
                 'Red': 0,
                 'Green': 1,
@@ -121,18 +130,9 @@ class CVDImageNet(ImageFolder):
                 'Yellow':10,
                 'Brown': 11
             }
-            # iterate all color types
-            for category, color_list in self.color_categories.items():
-                color_list = np.array(color_list)
-                # calculate norm as distance between input color and template colors
-                distances = np.linalg.norm(color_list - rgb, axis=1)
-                min_distance_for_category = np.min(distances)
-                
-                if min_distance_for_category < min_distance:
-                    min_distance = min_distance_for_category
-                    closest_category = category
-
-            return closest_category,category_map.get(closest_category, -1)  # return color words and index
+            distances = np.linalg.norm(self.color_value_array - rgb, axis=1)
+            index = np.argmin(distances)
+            return self.color_names[index], category_map[self.color_names[index]]   # return color words and index
         
         color_patch_mean = torch.mean(color_patch,dim=[1,2])*255
         color_name,color_index = classify_color(color_patch_mean)
