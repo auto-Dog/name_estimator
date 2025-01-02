@@ -67,8 +67,8 @@ train_val_percent = 0.8
 
 # trainset = CVDcifar('./',train=True,download=True,patch_size=args.patch,img_size=args.size,cvd=args.cvd)
 # testset = CVDcifar('./',train=False,download=True,patch_size=args.patch,img_size=args.size,cvd=args.cvd)
-trainset = CVDImageNet(args.dataset,split='train',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
-valset = CVDImageNet(args.dataset,split='val',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
+trainset = CVDImageNet(args.dataset,split='imagenet_subtrain',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
+valset = CVDImageNet(args.dataset,split='imagenet_subval',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
 # trainset = CVDPlace('/work/mingjundu/place_dataset/places365_standard/',split='train',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
 # valset = CVDPlace('/work/mingjundu/place_dataset/places365_standard/',split='val',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
 # inferenceset = CIFAR10('./',train=False,download=True,transform=transforms.Compose([transforms.ToTensor(),]))

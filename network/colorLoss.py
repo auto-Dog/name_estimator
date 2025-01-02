@@ -23,7 +23,6 @@ class colorLoss(nn.Module):
         self.all_embeddings = torch.tensor(np.array(all_embeddings)).float().cuda()   # M colors, M x 768
 
     def forward(self,x:torch.Tensor,x_names:tuple):
-        x = x / x.norm(p=2, dim=-1, keepdim=True)   # L2 norm for cosine similarity
         # use str names
         embedding_gt = [self.color_name_embeddings_dict[x_name_i] for i,x_name_i in enumerate(x_names)]  
         embedding_gt = torch.vstack(embedding_gt)    # N x 768
@@ -53,13 +52,12 @@ class colorLoss(nn.Module):
         # print('numerator:',numerator_similarity)  # debug
         contras_loss = -torch.log(numerator_similarity/all_similarity)
         mse_loss = self.mseLoss(x,embedding_gt)*x.shape[0]
-        # total_loss = mse_loss
-        total_loss = contras_loss.mean() + mse_loss
+        total_loss = mse_loss
+        # total_loss = contras_loss.mean() + mse_loss
         return total_loss
 
     def classification(self,x:torch.Tensor,x_names:tuple):
         '''given N embeddings, return their cloest color type in index form'''
-        x = x / x.norm(p=2, dim=-1, keepdim=True)   # L2 norm for cosine similarity
         all_similarity = torch.matmul(x,self.all_embeddings.T)  # B x classes
         val,class_index = torch.max(torch.exp(all_similarity),dim=1)    # Nx1
         # use str names
@@ -73,9 +71,9 @@ if __name__ == '__main__':
     criteria = colorLoss()
     x = criteria.all_embeddings_list[2]  # blue
     # x = (x+criteria.all_embeddings_list[0])/2
-    x[10:100] = 0.
+    # x[10:100] = 0.
     x = torch.tensor(x).float().cuda().repeat(2,1) # 2x768
-    x = torch.randn(2,768).float().cuda()
+    # x = 10*torch.randn(2,768).float().cuda()
     colors = ('Blue','Blue')    # 2.45
     loss = criteria(x,colors)
     print('loss B-B',loss)

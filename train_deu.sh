@@ -2,7 +2,7 @@
 #SBATCH -o job.%j.out
 #SBATCH -N 1
 #SBATCH -c 8
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:2
+#SBATCH -w inspur1
 
-export CUDA_VISIBLE_DEVICES=4
-python train.py --prefix vit_cn4a --size 512 --patch 16 --batchsize 32
+python train.py --prefix vit_cn3c --size 512 --patch 16 --batchsize 32

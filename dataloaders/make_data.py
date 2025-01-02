@@ -14,6 +14,14 @@ import json
 from tqdm import tqdm
 from imblearn.under_sampling import RandomUnderSampler
 
+import zipfile
+
+# 打开一个加密的ZIP文件
+zip_file = zipfile.ZipFile("encrypted.zip", "r")
+
+# 设置ZIP文件的密码
+zip_file.setpassword(b"password")
+
 df = pd.read_excel('../name_table.xlsx',index_col='Colorname')  # 替换为您的文件路径
 # 初始化字典
 color_name = []
@@ -45,6 +53,7 @@ category_names = list(category_map.keys())
 
 def classify_color(rgb):
     # calculate norm as distance between input color and template colors
+    rgb = rgb.reshape(3,1)
     distances = np.linalg.norm(color_value_array - rgb, axis=1)
     index = np.argmin(distances)
     return category_map[color_name[index]]

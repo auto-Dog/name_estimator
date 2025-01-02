@@ -6,8 +6,8 @@ from torch.utils.data import DataLoader, Dataset
 import torch
 import os
 from typing import Any, Callable, Optional, Tuple
-import sys
-sys.path.append("..")   # debug
+# import sys
+# sys.path.append("..")   # debug
 from utils.cvdObserver import cvdSimulateNet
 from PIL import Image
 import os
@@ -63,7 +63,8 @@ class CVDcifar(CIFAR10):
     
 class CVDImageNet(ImageFolder):
     def __init__(self, root: str, split: str = "train", patch_size=16, img_size=512, cvd='deutan',**kwargs: Any) -> None:
-        self.root = root
+        target_path = os.path.join(root,split)
+        super().__init__(target_path, **kwargs)
         self.image_size = img_size
         self.patch_size = patch_size
         self.my_transform = transforms.Compose(
@@ -74,28 +75,8 @@ class CVDImageNet(ImageFolder):
         )
         self.cvd_observer = cvdSimulateNet(cvd)
         self.color_name_embeddings = pd.read_csv('basic_color_embeddings.csv',index_col='Name')
-        self.category_map = {
-            'Red': 0,
-            'Green': 1,
-            'Blue': 2,
-            'Black':3,
-            'White':4,
-            'Gray' :5,
-            'Pink' :6,
-            'Orange':7,
-            'Purple':8,
-            'Cyan':9,
-            'Yellow':10,
-            'Brown': 11
-        }
-        self.category_names = list(self.category_map.keys())
-        try:
-            self.data_label_df = pd.read_csv('dataloaders/'+split+'_label.csv',index_col=0)
-        except:
-            raise IOError('Label file does not exist. Run dataloaders/make_data.py')
-
-    def __len__(self):
-        return len(self.data_label_df)
+        with open('color_dict.json','r')as f: 
+            self.color_categories = json.load(f)
         
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         """
@@ -105,33 +86,61 @@ class CVDImageNet(ImageFolder):
         Returns:
             tuple: (sample, target) where target is class_index of the target class.
         """
-        [path, patch_id, target] = self.data_label_df.loc[index].to_list()  # names form ImageNet -> ImageFolder -> DatasetFolder
-        sample = self.loader(os.path.join(self.root,path))
+        path, target = self.samples[index]  # names form ImageNet -> ImageFolder -> DatasetFolder
+        sample = self.loader(path)
 
         img = self.my_transform(sample)
         img_target = img.clone()
-        patch_target = img[:, 
-                           patch_id//32:patch_id//32+self.patch_size, 
-                           patch_id%32:patch_id%32+self.patch_size]
-        patch_color_embedding,patch_color_name = self.getEmbedding(target) # get color names   # debug
+        random_index = torch.randint(0,self.image_size//self.patch_size,size=(2,))
+        patch_target = img[:, random_index[0]*self.patch_size:random_index[0]*self.patch_size+self.patch_size, 
+                           random_index[1]*self.patch_size:random_index[1]*self.patch_size+self.patch_size]
+        patch_color_embedding,patch_color_name = self.getEmbedding(patch_target) # get color names   # debug
         patch = self.cvd_observer(patch_target)
         img = self.cvd_observer(img)
 
         return img, patch, img_target, patch_target, patch_color_name, patch_color_embedding # CVD image, CVD patch, image target, patch target
     
-    def getEmbedding(self,target):
-        '''Given a patch's color type number, return embedding and name'''
-        color_name = self.category_names[target]
+    def getEmbedding(self,color_patch):
+        '''Given a color patch, return its color type number and embedding'''
+
+        def classify_color(rgb):
+            rgb = rgb.numpy()  # RGB tensor to numpy
+            min_distance = float('inf')
+            closest_category = None
+            category_map = {
+                'Red': 0,
+                'Green': 1,
+                'Blue': 2,
+                'Black':3,
+                'White':4,
+                'Gray' :5,
+                'Pink' :6,
+                'Orange':7,
+                'Purple':8,
+                'Cyan':9,
+                'Yellow':10,
+                'Brown': 11
+            }
+            # iterate all color types
+            for category, color_list in self.color_categories.items():
+                color_list = np.array(color_list)
+                # calculate norm as distance between input color and template colors
+                distances = np.linalg.norm(color_list - rgb, axis=1)
+                min_distance_for_category = np.min(distances)
+                
+                if min_distance_for_category < min_distance:
+                    min_distance = min_distance_for_category
+                    closest_category = category
+
+            return closest_category,category_map.get(closest_category, -1)  # return color words and index
+        
+        color_patch_mean = torch.mean(color_patch,dim=[1,2])*255
+        color_name,color_index = classify_color(color_patch_mean)
         color_embedding = self.color_name_embeddings.loc[color_name].to_numpy()
         color_embedding = torch.from_numpy(color_embedding)
         # color_index = torch.tensor(color_index,dtype=torch.long)
         return color_embedding, color_name
-    
-    def loader(self,path):
-        # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
-        with open(path, 'rb') as f:
-            img = Image.open(f)
-            return img.convert('RGB')
+
     
 class CVDPlace(CVDImageNet):
     def __init__(self, root: str, split: str = "train", patch_size=4, img_size=64,**kwargs: Any) -> None:
@@ -139,7 +148,7 @@ class CVDPlace(CVDImageNet):
 
 if __name__ == '__main__':
     from torchvision.transforms import ToPILImage
-    CVD_set = CVDImageNet('/work/mingjundu/imagenet100k/',split='train')
+    CVD_set = CVDImageNet('/work/mingjundu/imagenet100k/',split='imagenet_subtrain')
     CVD_loader = torch.utils.data.DataLoader(CVD_set,batch_size=10,shuffle = True)
     for outputs in CVD_loader:
         img_ori = outputs[2]
