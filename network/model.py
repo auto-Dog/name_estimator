@@ -164,8 +164,8 @@ class ViT(nn.Module):
         b, c, h, w = x.shape
         x = self.patch_embedding(x)  # b,d,gh,gw
         x = x.flatten(2).transpose(1, 2)  # b,gh*gw,d
-        x_ci = self.ci_patch_embedding(x_color_i).flatten(2).transpose(1, 2)   # b,1,d  # new, for colorvit
-        x = torch.cat((x,x_ci),dim=1) # bound I and c_i # new, for colorvit
+        x_ci = self.patch_embedding(x_color_i).flatten(2).transpose(1, 2)   # b,1,d  # new, for colorvit
+        x = torch.cat((x_ci,x),dim=1) # bound I and c_i # new, for colorvit
 
         if hasattr(self, 'class_token'):
             x = torch.cat((self.class_token.expand(b, -1, -1), x), dim=1)  # b,gh*gw+1,d

@@ -17,7 +17,7 @@ from PIL import Image
 
 from utils.logger import Logger
 from tqdm import tqdm
-from dataloaders.CVDDS import CVDcifar,CVDImageNet,CVDPlace
+from dataloaders.CVDDS import CVDcifar,CVDImageNet,CVDPlace,CVDImageNetRand
 from network import ViT,colorLoss
 from utils.cvdObserver import cvdSimulateNet
 from utils.conditionP import conditionP
@@ -48,7 +48,7 @@ parser.add_argument('--test',type=bool,default=False)
 parser.add_argument('--epoch', type=int, default=50)
 parser.add_argument('--dataset', type=str, default='/work/mingjundu/imagenet100k/')
 parser.add_argument("--cvd", type=str, default='deutan')
-# C-Glow parameters
+parser.add_argument("--tau", type=float, default=0.3)
 parser.add_argument("--x_bins", type=float, default=256.0)  # noise setting, to make input continues-like
 parser.add_argument("--y_bins", type=float, default=256.0)
 parser.add_argument("--prefix", type=str, default='vit_cn1')
@@ -88,7 +88,7 @@ model = ViT('ColorViT', pretrained=False,image_size=args.size,patches=args.patch
 model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
 model = model.cuda()
 
-criterion = colorLoss()
+criterion = colorLoss(args.tau)
 
 # optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=0.1)
 
@@ -264,11 +264,11 @@ testing = validate
 best_score = 0
 
 if args.test == True:
-    # finaltestset = CVDcifar('./',train=False,download=True)
-    # finaltestloader = torch.utils.data.DataLoader(finaltestset,batch_size=args.batchsize,shuffle = False,num_workers=8)
+    finaltestset =  CVDImageNetRand(args.dataset,split='imagenet_subval',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
+    finaltestloader = torch.utils.data.DataLoader(finaltestset,batch_size=args.batchsize,shuffle = True,num_workers=4)
     model.load_state_dict(torch.load(pth_location, map_location='cpu'))
     # sample_enhancement(model,None,-1,args)
-    # testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args)
+    testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args)
 else:
     for i in range(args.epoch):
         print("===========Epoch:{}==============".format(i))
