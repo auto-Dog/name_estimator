@@ -175,74 +175,60 @@ def validate(testloader, model, criterion, optimizer, lrsch, logger, args):
 
     return acc, model.state_dict()
 
-# def sample_enhancement(model,inferenceloader,epoch,args):
-#     ''' 根据给定的图片，进行颜色优化
+def sample_enhancement(model,inferenceloader,epoch,args):
+    ''' 根据给定的图片，进行颜色优化
 
-#     目标： $argmax_{c_i} p(\hat{c}|I^{cvd}c_i^{cvd})$ 
+    目标： $argmax_{c_i} p(\hat{c}|I^{cvd}c_i^{cvd})$ 
 
-#     '''
-#     model.eval()
-#     sample_num = 30 # 目标输出采样数
-#     cvd_process = cvdSimulateNet(cvd_type=args.cvd,cuda=True,batched_input=True) # 保证在同一个设备上进行全部运算
-#     # for img,_ in inferenceloader:
-#     #     img = img.cuda()
-#     #     img_cvd = cvd_process(img)
-#     #     img_cvd:torch.Tensor = img_cvd[0,...].unsqueeze(0)  # shape C,H,W
-#     #     img_t:torch.Tensor = img[0,...].unsqueeze(0)        # shape C,H,W
-#     #     break   # 只要第一张
-#     image_sample = Image.open('flowers.PNG').convert('RGB')
-#     image_sample_big = np.array(image_sample)/255.   # 缓存大图
-#     image_sample = image_sample.resize((args.size,args.size))
-#     image_sample = torch.tensor(np.array(image_sample)).permute(2,0,1).unsqueeze(0)/255.
-#     image_sample = image_sample.cuda()
-#     # img_cvd = cvd_process(image_sample)
-#     # img_cvd:torch.Tensor = img_cvd[0,...].unsqueeze(0)  # shape C,H,W
-#     img_t:torch.Tensor = image_sample[0,...].unsqueeze(0)        # shape C,H,W
+    '''
+    model.eval()
+    cvd_process = cvdSimulateNet(cvd_type=args.cvd,cuda=True,batched_input=True) # 保证在同一个设备上进行全部运算
+    temploader =  CVDImageNetRand(args.dataset,split='imagenet_subval',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
+    image_sample = Image.open('flowers.PNG').convert('RGB')
+    image_sample_big = np.array(image_sample)/255.   # 缓存大图
+    image_sample = image_sample.resize((args.size,args.size))
+    image_sample = np.array(image_sample)
+    patch_names = []
+    for patch_y_i in range(args.size//args.patch):
+        for patch_x_i in range(args.size//args.patch):
+            y_end = patch_y_i*args.patch+args.patch
+            x_end = patch_x_i*args.patch+args.patch
+            single_patch = image_sample[patch_y_i*16:y_end,patch_x_i*16:x_end,:]*255
+            # calculate color names
+            patch_rgb = np.mean(single_patch,axis=(0,1))
+            patch_color_name,_ = temploader.classify_color(patch_rgb)
+            patch_names.append(patch_color_name)
 
-#     img_out = img_t.clone()
-#     img_out_delta = img_out.repeat(sample_num,1,1,1).contiguous()  # 保持跟采样数一致
-#     img_bias = torch.rand(sample_num, 3, 1, 1).cuda() * 0.2 - 0.1  # 生成 -0.1 到 0.1 之间的随机偏移量
-#     img_out_delta = img_out_delta + img_bias  # 将偏移量加到 img_out_delta 上，维度自动广播
-#     img_out_delta[img_out_delta<0] = 0.
-#     # inference_criterion = nn.MSELoss()
-#     img_t.requires_grad = True
-#     # inference_optimizer = torch.optim.SGD(params=[img_t],lr=3e-3)   # 对输入图像进行梯度下降
-#     # inference_optimizer = torch.optim.SGD(params=[img_t],lr=3e-3,momentum=0.3) # 对输入图像进行梯度下降
-#     inference_optimizer = torch.optim.Adam(params=[img_t],lr=1e-2)   # 对输入图像进行梯度下降
-#     # for iter in range(100):
-#     #     inference_optimizer.zero_grad()
-#     #     img_cvd = cvd_process(img_t)
-#     #     img_cvd_batch = img_cvd.repeat(sample_num,1,1,1).contiguous()  # 保持跟采样数一致
-#     #     out_z,loss = model(img_cvd_batch,img_out_delta)  # 相当于Σ-log p(img_ori|img_cvd(t))
-#     #     loss = torch.mean(loss)
-#     #     # loss = inference_criterion(out,img_out)   
-#     #     loss.backward()
-#     #     inference_optimizer.step()
-#     #     if iter%10 == 0:
-#     #         print(f'Mean Absolute grad: {torch.mean(torch.abs(img_t.grad))}, nll:{loss.item()}')
-#     img_cvd = cvd_process(img_t)
-#     out_z,loss = model(img_cvd,img_t)  # temp debug
-#     out,nll = model(img_cvd,out_z,reverse=True)   # 存在问题，逆向生成大概率上色不准
+    image_sample = torch.tensor(image_sample).permute(2,0,1).unsqueeze(0)/255.
+    image_sample = image_sample.cuda()
+    # img_cvd = cvd_process(image_sample)
+    # img_cvd:torch.Tensor = img_cvd[0,...].unsqueeze(0)  # shape C,H,W
+    img_t:torch.Tensor = image_sample[0,...].unsqueeze(0)        # shape C,H,W
+    img_out = img_t.clone()
+    inference_criterion = colorLoss(tau=0.2)
+    img_t.requires_grad = True
+    # inference_optimizer = torch.optim.SGD(params=[img_t],lr=3e-3)   # 对输入图像进行梯度下降
+    # inference_optimizer = torch.optim.SGD(params=[img_t],lr=3e-3,momentum=0.3) # 对输入图像进行梯度下降
+    inference_optimizer = torch.optim.Adam(params=[img_t],lr=1e-2)   # 对输入图像进行梯度下降
+    for iter in range(100):
+        inference_optimizer.zero_grad()
+        img_cvd = cvd_process(img_t)
+        outs = model(img_cvd)
+        loss = inference_criterion(outs,patch_names)
+        # loss = inference_criterion(out,img_out)   
+        loss.backward()
+        inference_optimizer.step()
+        if iter%10 == 0:
+            print(f'Mean Absolute grad: {torch.mean(torch.abs(img_t.grad))}, loss:{loss.item()}')
 
-#     ori_out_array = img_out.squeeze(0).permute(1,2,0).cpu().detach().numpy()
+    ori_out_array = img_out.squeeze(0).permute(1,2,0).cpu().detach().numpy()
+    img_out_array = img_t.clone()
+    img_out_array = img_out_array.squeeze(0).permute(1,2,0).cpu().detach().numpy()
 
-#     recolor_out_array = out.clone()
-#     recolor_out_array = recolor_out_array.squeeze(0).permute(1,2,0).cpu().detach().numpy()
-#     # recolor_out_array_big = apply_color_transfer(ori_out_array,recolor_out_array,image_sample_big)  # 将小图变换应用到大图
-
-#     img_out_array = img_t.clone()
-#     img_out_array = img_out_array.squeeze(0).permute(1,2,0).cpu().detach().numpy()
-#     img_out_array_big = apply_color_transfer(ori_out_array,img_out_array,image_sample_big)
-
-#     img_diff = (img_out_array - ori_out_array)*10.0
-#     img_diff_big = (img_out_array_big - image_sample_big)*10.0
-#     img_all_array = np.clip(np.hstack([ori_out_array,recolor_out_array,img_out_array,img_diff]),0.0,1.0)
-#     img_all_array_big = np.clip(np.hstack([image_sample_big,img_out_array_big,img_diff_big]),0.0,1.0)
-#     plt.imshow(img_all_array)
-#     plt.savefig('./run/'+f'sample_{args.prefix}_e{epoch}.png')
-#     plt.cla()
-#     plt.imshow(img_all_array_big)
-#     plt.savefig('./run/'+f'highres_sample_{args.prefix}_e{epoch}.png')
+    img_diff = (img_out_array - ori_out_array)*10.0
+    img_all_array = np.clip(np.hstack([ori_out_array,img_out_array,img_diff]),0.0,1.0)
+    plt.imshow(img_all_array)
+    plt.savefig('./run/'+f'sample_{args.prefix}_e{epoch}.png')
 
 def log_metric(prefix, logger, loss, target, pred):
     cls_report = classification_report(target, pred, output_dict=True, zero_division=0)

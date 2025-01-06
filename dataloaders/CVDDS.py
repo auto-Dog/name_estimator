@@ -190,33 +190,34 @@ class CVDImageNetRand(ImageFolder):
     
     def getEmbedding(self,color_patch):
         '''Given a color patch, return its color type number and embedding'''
-        def classify_color(rgb):
-            rgb = rgb.numpy()  # RGB tensor to numpy
-            # calculate norm as distance between input color and template colors
-            category_map = {
-                'Red': 0,
-                'Green': 1,
-                'Blue': 2,
-                'Black':3,
-                'White':4,
-                'Gray' :5,
-                'Pink' :6,
-                'Orange':7,
-                'Purple':8,
-                'Cyan':9,
-                'Yellow':10,
-                'Brown': 11
-            }
-            distances = np.linalg.norm(self.color_value_array - rgb, axis=1)
-            index = np.argmin(distances)
-            return self.color_names[index], category_map[self.color_names[index]]   # return color words and index
-        
         color_patch_mean = torch.mean(color_patch,dim=[1,2])*255
-        color_name,color_index = classify_color(color_patch_mean)
+        color_name,color_index = self.classify_color(color_patch_mean)
         color_embedding = self.color_name_embeddings.loc[color_name].to_numpy()
         color_embedding = torch.from_numpy(color_embedding)
         # color_index = torch.tensor(color_index,dtype=torch.long)
         return color_embedding, color_name
+    
+    def classify_color(self,rgb):
+        ''' Given a color RGB, return its color type number '''
+        rgb = rgb.numpy()  # RGB tensor to numpy
+        # calculate norm as distance between input color and template colors
+        category_map = {
+            'Red': 0,
+            'Green': 1,
+            'Blue': 2,
+            'Black':3,
+            'White':4,
+            'Gray' :5,
+            'Pink' :6,
+            'Orange':7,
+            'Purple':8,
+            'Cyan':9,
+            'Yellow':10,
+            'Brown': 11
+        }
+        distances = np.linalg.norm(self.color_value_array - rgb, axis=1)
+        index = np.argmin(distances)
+        return self.color_names[index], category_map[self.color_names[index]]   # return color words and index
 
 class CVDPlace(CVDImageNet):
     def __init__(self, root: str, split: str = "train", patch_size=4, img_size=64,**kwargs: Any) -> None:
