@@ -18,7 +18,7 @@ from PIL import Image
 from utils.logger import Logger
 from tqdm import tqdm
 from dataloaders.CVDDS import CVDcifar,CVDImageNet,CVDPlace,CVDImageNetRand
-from network import ViT,colorLoss
+from network import ViT,colorLoss, colorFilter
 from utils.cvdObserver import cvdSimulateNet
 from utils.conditionP import conditionP
 from utils.utility import patch_split,patch_compose
@@ -51,7 +51,7 @@ parser.add_argument("--cvd", type=str, default='deutan')
 parser.add_argument("--tau", type=float, default=0.3)
 parser.add_argument("--x_bins", type=float, default=256.0)  # noise setting, to make input continues-like
 parser.add_argument("--y_bins", type=float, default=256.0)
-parser.add_argument("--prefix", type=str, default='vit_cn1')
+parser.add_argument("--prefix", type=str, default='vit_cn5')
 args = parser.parse_args()
 
 print(args) # show all parameters
@@ -116,14 +116,15 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, epoch):
     logger.update_step()
     label_list = []
     pred_list  = []
-    for img, ci_patch, img_target, _,patch_color_name, _  in tqdm(trainloader,ascii=True,ncols=60):
+    for img, ci_patch, img_target, _,patch_color_name, patch_id  in tqdm(trainloader,ascii=True,ncols=60):
         optimizer.zero_grad()
         img = img.cuda()
         ci_patch = ci_patch.cuda()
         # st_time = time.time()   # debug
         # print('Timer now')  # debug
-        outs = model(add_input_noise(img,bins=args.x_bins),
-                         add_input_noise(ci_patch,bins=args.y_bins))
+        outs = model(add_input_noise(img,bins=args.x_bins))
+        batch_index = torch.arange(len(outs),dtype=torch.long)   # 配合第二维度索引使用
+        outs = outs[batch_index,patch_id] # 取出目标位置的颜色embedding
         # print('Model use:',time.time()-st_time) # debug
         loss_batch = criterion(outs,patch_color_name)
         # print('Loss Func. use:',time.time()-st_time)    # debug
@@ -157,12 +158,14 @@ def validate(testloader, model, criterion, optimizer, lrsch, logger, args):
     loss_logger = 0.
     label_list = []
     pred_list  = []
-    for img, ci_patch, img_target, _,patch_color_name, _ in tqdm(testloader,ascii=True,ncols=60):
+    for img, ci_patch, img_target, _,patch_color_name, patch_id in tqdm(testloader,ascii=True,ncols=60):
         with torch.no_grad():
-            outs = model(img.cuda(),ci_patch.cuda()) 
+            outs = model(img.cuda()) 
         # ci_rgb = ci_rgb.cuda()
         # img_target = img_target.cuda()
         # print("label:",label)
+        batch_index = torch.arange(len(outs),dtype=torch.long)   # 配合第二维度索引使用
+        outs = outs[batch_index,patch_id] # 取出目标位置的颜色embedding
         loss_batch = criterion(outs,patch_color_name)
         loss_logger += loss_batch.item()    # 显示全部loss
         pred,label = criterion.classification(outs,patch_color_name)
@@ -183,9 +186,9 @@ def sample_enhancement(model,inferenceloader,epoch,args):
     '''
     model.eval()
     cvd_process = cvdSimulateNet(cvd_type=args.cvd,cuda=True,batched_input=True) # 保证在同一个设备上进行全部运算
-    temploader =  CVDImageNetRand(args.dataset,split='imagenet_subval',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
-    image_sample = Image.open('flowers.PNG').convert('RGB')
-    image_sample_big = np.array(image_sample)/255.   # 缓存大图
+    temploader =  CVDImageNetRand(args.dataset,split='imagenet_subval',patch_size=args.patch,img_size=args.size,cvd=args.cvd)   # 只利用其中的颜色命名模块
+    image_sample = Image.open('apple.png').convert('RGB')
+    # image_sample_big = np.array(image_sample)/255.   # 缓存大图
     image_sample = image_sample.resize((args.size,args.size))
     image_sample = np.array(image_sample)
     patch_names = []
@@ -193,33 +196,40 @@ def sample_enhancement(model,inferenceloader,epoch,args):
         for patch_x_i in range(args.size//args.patch):
             y_end = patch_y_i*args.patch+args.patch
             x_end = patch_x_i*args.patch+args.patch
-            single_patch = image_sample[patch_y_i*16:y_end,patch_x_i*16:x_end,:]*255
+            single_patch = image_sample[patch_y_i*16:y_end,patch_x_i*16:x_end,:]
             # calculate color names
             patch_rgb = np.mean(single_patch,axis=(0,1))
-            patch_color_name,_ = temploader.classify_color(patch_rgb)
+            patch_color_name,_ = temploader.classify_color(torch.tensor(patch_rgb)) # classify_color接收tensor输入
             patch_names.append(patch_color_name)
 
     image_sample = torch.tensor(image_sample).permute(2,0,1).unsqueeze(0)/255.
     image_sample = image_sample.cuda()
     # img_cvd = cvd_process(image_sample)
     # img_cvd:torch.Tensor = img_cvd[0,...].unsqueeze(0)  # shape C,H,W
-    img_t:torch.Tensor = image_sample[0,...].unsqueeze(0)        # shape C,H,W
+    img_t:torch.Tensor = image_sample      # shape 1,C,H,W
     img_out = img_t.clone()
+    # filtermodel = colorFilter().cuda()
+    # filtermodel.train()
     inference_criterion = colorLoss(tau=0.2)
     img_t.requires_grad = True
     # inference_optimizer = torch.optim.SGD(params=[img_t],lr=3e-3)   # 对输入图像进行梯度下降
     # inference_optimizer = torch.optim.SGD(params=[img_t],lr=3e-3,momentum=0.3) # 对输入图像进行梯度下降
-    inference_optimizer = torch.optim.Adam(params=[img_t],lr=1e-2)   # 对输入图像进行梯度下降
+    inference_optimizer = torch.optim.Adam(params=[img_t],lr=3e-3)   # 对输入图像进行梯度下降
+    # inference_optimizer = torch.optim.Adam(filtermodel.parameters(),lr=1e-3) # 对模型参数梯度下降
+    # filter_loss = nn.MSELoss()  # 防止过度改变颜色
     for iter in range(100):
         inference_optimizer.zero_grad()
+        # img_t = filtermodel(img_out)    # 采用多项式变换改变色彩
         img_cvd = cvd_process(img_t)
         outs = model(img_cvd)
-        loss = inference_criterion(outs,patch_names)
-        # loss = inference_criterion(out,img_out)   
+        outs = outs[0]  # 去掉batch维度
+        # loss = inference_criterion(outs,patch_names) + filter_loss(img_t,img_out)   # new
+        loss = inference_criterion(outs,patch_names)   
         loss.backward()
         inference_optimizer.step()
         if iter%10 == 0:
-            print(f'Mean Absolute grad: {torch.mean(torch.abs(img_t.grad))}, loss:{loss.item()}')
+            # print(f'Mean Absolute grad: {torch.mean(torch.abs(img_t.grad))}, loss:{loss.item()}')
+            print(f'loss:{loss.item()}')
 
     ori_out_array = img_out.squeeze(0).permute(1,2,0).cpu().detach().numpy()
     img_out_array = img_t.clone()
@@ -253,8 +263,8 @@ if args.test == True:
     finaltestset =  CVDImageNetRand(args.dataset,split='imagenet_subval',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
     finaltestloader = torch.utils.data.DataLoader(finaltestset,batch_size=args.batchsize,shuffle = True,num_workers=4)
     model.load_state_dict(torch.load(pth_location, map_location='cpu'))
-    # sample_enhancement(model,None,-1,args)
-    testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args)
+    sample_enhancement(model,None,-1,args)  # test optimization
+    # testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args)    # test performance on dataset
 else:
     for i in range(args.epoch):
         print("===========Epoch:{}==============".format(i))

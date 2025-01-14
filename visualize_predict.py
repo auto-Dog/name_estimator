@@ -8,7 +8,7 @@ from network import ViT,colorLoss
 from utils.cvdObserver import cvdSimulateNet
 from colour.blindness import matrix_cvd_Machado2009
 
-prefix = 'vit_cn4c'
+prefix = 'vit_cn5'
 pth_location = './Models/model_'+prefix+'.pth'
 model = ViT('ColorViT', pretrained=False,image_size=512,patches=16,num_layers=6,num_heads=6,num_classes=1000)
 model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
@@ -17,11 +17,15 @@ model.load_state_dict(torch.load(pth_location, map_location='cpu'))
 criterion = colorLoss()
 cvd_process = cvdSimulateNet(cvd_type='deutan',cuda=False,batched_input=True)
 
-def classify_color(img_cvd:torch.tensor,patch_cvd:torch.tensor):
+# update at vit cn 5c
+def classify_color(img_cvd:torch.tensor):
     model.eval()
     with torch.no_grad():
-        outs = model(img_cvd.cuda(),patch_cvd.cuda()) 
-    cls_index,_ = criterion.classification(outs,('Red',))  # the later parameter is used for fill blank, no meaning
+        outs = model(img_cvd.cuda()) 
+    # print('Out shape:',outs.shape)  # debug
+    outs = outs[0]  # 去掉batch维度
+    # for vit cn5: give all index at once
+    cls_index,_ = criterion.classification(outs,('Red',)*1024)  # the later parameter is used for fill blank, no meaning
     return cls_index
 
 def cvd_simulate(img:np.ndarray,cvd_type='Deuteranomaly'):
@@ -86,10 +90,17 @@ def visualize_name(img:np.ndarray):
     all_patch_name = []
     img_tensor = torch.from_numpy(img).float().permute(2,0,1).unsqueeze(0)
     img_cvd = cvd_process(img_tensor)
-    for single_patch_cvd in patches:
-        patch_color_index = classify_color(img_cvd,single_patch_cvd)
-        patch_color_name = name_list[patch_color_index[0]]
+    patch_color_indexes = classify_color(img_cvd)
+    print(patch_color_indexes.shape)    # debug
+    for i in range(1024):
+        patch_color_index = int(patch_color_indexes[i])
+        patch_color_name = name_list[patch_color_index]
         all_patch_name.append(patch_color_name)
+    # For vit cn4c and earlier version
+    # for single_patch_cvd in patches:
+    #     patch_color_index = classify_color(img_cvd,single_patch_cvd)
+    #     patch_color_name = name_list[patch_color_index[0]]
+    #     all_patch_name.append(patch_color_name)
 
     # show patches and name, 2 pixel grid
     patch_canvas = np.zeros((ori_shape[0]+(patches_y+1)*2,
@@ -126,6 +137,6 @@ def visualize_name(img:np.ndarray):
     plt.savefig('predict_colors_on_image_cvd.png')
 
 from PIL import Image
-img = Image.open('flowers.PNG').convert('RGB').resize((512,512))
+img = Image.open('apple-icon.png').convert('RGB').resize((512,512))
 img = np.array(img)/255.
 visualize_name(img)

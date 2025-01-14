@@ -121,8 +121,9 @@ class CVDImageNet():
         patch_color_embedding,patch_color_name = self.getEmbedding(target) # get color names   # debug
         patch = self.cvd_observer(patch_target)
         img = self.cvd_observer(img)
+        patch_id = torch.tensor(patch_id,dtype=torch.long)
 
-        return img, patch, img_target, patch_target, patch_color_name, patch_color_embedding # CVD image, CVD patch, image target, patch target
+        return img, patch, img_target, patch_target, patch_color_name, patch_id # CVD image, CVD patch, image target, patch target
     
     def getEmbedding(self,target):
         '''Given a patch's color type number, return embedding and name'''

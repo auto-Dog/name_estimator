@@ -16,6 +16,7 @@ from dataloaders.CVDDS import CVDcifar,CVDImageNet,CVDPlace
 from network import ViT,colorLoss
 from utils.cvdObserver import cvdSimulateNet
 import pandas as pd
+import colour
 
 # argparse here
 parser = argparse.ArgumentParser(description='COLOR-ENHANCEMENT')
@@ -156,10 +157,13 @@ def classify_color(rgb):
 
 # 产生指定颜色值
 colors = []
-for r in range(0, 256, 10):
-    for g in range(0, 256, 10):
-        for b in range(0, 256, 10):
-            colors.append((r, g, b))
+# for r in range(0, 256, 10):
+#     for g in range(0, 256, 10):
+#         for b in range(0, 256, 10):
+#             colors.append((r, g, b))
+colour.munsell_colour_to_xyY()
+colour.xyY_to_XYZ()
+colour.XYZ_to_sRGB
 label_list = []
 pred_list = []
 for rgb_value_ori in tqdm(colors):
@@ -170,7 +174,7 @@ for rgb_value_ori in tqdm(colors):
     img = cvd_process(img)
     ci_patch = cvd_process(ci_patch)
     with torch.no_grad():
-        outs = model(img.cuda(),ci_patch.cuda())
+        outs = model(img.cuda())
     patch_color_name = classify_color(rgb_value_ori)
     pred,label = criterion.classification(outs,(patch_color_name,))
     label_list.extend(label.cpu().detach().tolist())
