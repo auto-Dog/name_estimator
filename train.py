@@ -52,7 +52,7 @@ parser.add_argument("--tau", type=float, default=0.3)
 parser.add_argument("--x_bins", type=float, default=256.0)  # noise setting, to make input continues-like
 parser.add_argument("--y_bins", type=float, default=256.0)
 parser.add_argument("--prefix", type=str, default='vit_cn5')
-parser.add_argument('--from_check_point',type=bool,default=False)
+parser.add_argument('--from_check_point',type=str,default='')
 args = parser.parse_args()
 
 print(args) # show all parameters
@@ -60,7 +60,7 @@ print(args) # show all parameters
 save_root = './run'
 pth_location = './Models/model_'+args.prefix+'.pth'
 pth_optim_location = './Models/model_'+args.prefix+'_optim'+'.pth'
-ckp_location = './Models/model_'+args.prefix+'.pth'
+ckp_location = './Models/'+args.from_check_point
 logger = Logger(save_root)
 logger.global_step = 0
 n_splits = 5
@@ -101,7 +101,7 @@ criterion2 = nn.MSELoss()
 
 # Update 11.15
 optimizer = torch.optim.Adamax(model.parameters(), lr=args.lr, weight_decay=5e-5)
-optimizer_optim = torch.optim.Adamax(model.parameters(), lr=args.lr, weight_decay=5e-5)
+optimizer_optim = torch.optim.Adamax(filtermodel.parameters(), lr=args.lr, weight_decay=5e-5)
 lr_lambda = lambda epoch: min(1.0, (epoch + 1)/5.)  # noqa
 lrsch = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
 
@@ -300,13 +300,13 @@ if args.test == True:
     sample_enhancement(model,None,-1,args)  # test optimization
     # testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args)    # test performance on dataset
 else:
-    if args.from_check_point == True:
+    if args.from_check_point != '':
         model.load_state_dict(torch.load(ckp_location))
     for i in range(args.epoch):
         print("===========Epoch:{}==============".format(i))
         # if i==0:
         #     sample_enhancement(model,None,i,args) # debug
-        train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train')
+        # train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train')
         train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
         score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval')
         score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
