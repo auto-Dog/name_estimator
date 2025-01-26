@@ -307,12 +307,12 @@ else:
         # if i==0:
         #     sample_enhancement(model,None,i,args) # debug
         train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train')
-        train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
+        # train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
         score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval')
-        score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
+        # score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
         # sample_enhancement(model,None,i,args)
         if score > best_score:
             best_score = score
             torch.save(model_save, pth_location)
-        if score_optim > score:
-            torch.save(model_optim_save, pth_optim_location)
+        # if score_optim > score:
+        #     torch.save(model_optim_save, pth_optim_location)
