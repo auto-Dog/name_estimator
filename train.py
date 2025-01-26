@@ -297,8 +297,8 @@ if args.test == True:
     finaltestloader = torch.utils.data.DataLoader(finaltestset,batch_size=args.batchsize,shuffle = True,num_workers=4)
     model.load_state_dict(torch.load(pth_location, map_location='cpu'))
     filtermodel.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
-    sample_enhancement(model,None,-1,args)  # test optimization
-    # testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args)    # test performance on dataset
+    # sample_enhancement(model,None,-1,args)  # test optimization
+    testing(valloader,model,criterion,optimizer,lrsch,logger,args,'eval')    # test performance on dataset
 else:
     if args.from_check_point != '':
         model.load_state_dict(torch.load(ckp_location))
@@ -306,13 +306,13 @@ else:
         print("===========Epoch:{}==============".format(i))
         # if i==0:
         #     sample_enhancement(model,None,i,args) # debug
-        # train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train')
-        train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
+        train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train')
+        # train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
         score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval')
-        score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
+        # score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
         # sample_enhancement(model,None,i,args)
         if score > best_score:
             best_score = score
             torch.save(model_save, pth_location)
-        if score_optim > score:
-            torch.save(model_optim_save, pth_optim_location)
+        # if score_optim > score:
+        #     torch.save(model_optim_save, pth_optim_location)
