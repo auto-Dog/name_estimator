@@ -13,6 +13,11 @@ import pandas as pd
 import json
 from tqdm import tqdm
 from imblearn.under_sampling import RandomUnderSampler
+import argparse
+
+parser = argparse.ArgumentParser(description='COLOR-ENHANCEMENT')
+parser.add_argument('--dataset', type=str, default='/work/mingjundu/imagenet100k/')
+args = parser.parse_args()
 
 df = pd.read_excel('../name_table.xlsx',index_col='Colorname')  # 替换为您的文件路径
 # 初始化字典
@@ -26,6 +31,7 @@ for index, row in df.iterrows():
     rgb_array = [int(x) for x in row['RGB'].split(',')]
     color_value.append(rgb_array)
 
+dataset_path = args.dataset
 color_value_array = np.array(color_value)
 category_map = {
     'Red': 0,
@@ -76,8 +82,8 @@ class CVDImageNet(ImageFolder):
         img = self.my_transform(sample)
         return img, path
 
-trainset = CVDImageNet('/work/mingjundu/imagenet100k/',split='imagenet_subtrain',patch_size=16,img_size=32,cvd='deutan')
-valset = CVDImageNet('/work/mingjundu/imagenet100k/',split='imagenet_subval',patch_size=16,img_size=32,cvd='deutan')
+trainset = CVDImageNet(dataset_path,split='imagenet_subtrain',patch_size=16,img_size=32,cvd='deutan')
+valset = CVDImageNet(dataset_path,split='imagenet_subval',patch_size=16,img_size=32,cvd='deutan')
 trainloader = torch.utils.data.DataLoader(trainset,batch_size=1,shuffle = True,num_workers=8)
 valloader = torch.utils.data.DataLoader(valset,batch_size=1,shuffle = True,num_workers=8)
 
