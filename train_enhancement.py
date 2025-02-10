@@ -64,7 +64,7 @@ model = ViT('ColorViT', pretrained=False,image_size=args.size,patches=args.patch
 model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
 model = model.cuda()
 
-model_nt = ViT('ColorViTNT', pretrained=False,image_size=args.size,patches=args.patch,num_layers=6,num_heads=6,num_classes = 1000)
+model_nt = ViT('ColorViT', pretrained=False,image_size=args.size,patches=args.patch,num_layers=6,num_heads=6,num_classes = 1000)
 model_nt = nn.DataParallel(model_nt,device_ids=list(range(torch.cuda.device_count())))
 model_nt = model_nt.cuda()
 
@@ -81,18 +81,18 @@ criterion_L1 = nn.L1Loss()
 optimizer_critic = torch.optim.Adamax(model_critic.parameters(), lr=args.lr, weight_decay=5e-5)
 optimizer_enhance = torch.optim.Adamax(model_enhance.parameters(), lr=args.lr, weight_decay=5e-5)
 lr_lambda = lambda epoch: min(1.0, (epoch + 1)/5.)  # noqa
-lrsch = torch.optim.lr_scheduler.LambdaLR(model_enhance, lr_lambda=lr_lambda)
+lrsch = torch.optim.lr_scheduler.LambdaLR(optimizer_enhance, lr_lambda=lr_lambda)
 
 def wgan_train(classifier1,classifier2,enhancement,enhancement_optimizer,critic,critic_optimizer,x:torch.Tensor,iter_num):
     ''' Train conditional Wasserstein GAN for one step '''
     # one = torch.FloatTensor(1).cuda()
     # mone = -1*one
     y1 = classifier1(x)
-    random_seed = torch.rand(x.shape[0],1).cuda()
+    # random_seed = torch.rand(x.shape[0],1).cuda()
     # limit the gradient, clamp parameters to a cube
     for p in critic.parameters():
         p.data.clamp_(-0.01,0.01)
-    x2 = enhancement(x,random_seed)
+    x2 = enhancement(x)
     x2 = cvd_process(x2)
     y2 = classifier2(x2)
     # train critic function
@@ -105,9 +105,9 @@ def wgan_train(classifier1,classifier2,enhancement,enhancement_optimizer,critic,
     critic_optimizer.step()
     
     # train enhancement model, equals to generator
-    if iter_num % args.n_critic:
+    if iter_num % args.n_critic == 0:
         enhancement_optimizer.zero_grad()
-        x2 = enhancement(x,random_seed)
+        x2 = enhancement(x)
         x2 = cvd_process(x2)
         y2 = classifier2(x2)
         fake_validity = critic(y2,x)
@@ -116,16 +116,17 @@ def wgan_train(classifier1,classifier2,enhancement,enhancement_optimizer,critic,
         enhancement_optimizer.step()
     return y2,critic_loss
 
-def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='train', model_enhance=None):
+def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='train'):
     logger.update_step()
     model.eval()
+    model_nt.eval()
     model_enhance.train()
+    model_critic.train()
     loss_logger = 0.
     label_list = []
     pred_list  = []
     iter_num = 0
     for img, ci_patch, img_ori, _,patch_color_name, patch_id in tqdm(trainloader,ascii=True,ncols=60):
-        optimizer.zero_grad()
         img = img.cuda()
         img_ori = img_ori.cuda()
         outs,critic_loss = wgan_train(model,model_nt,model_enhance,optimizer_enhance,
@@ -140,7 +141,6 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='
         label_list.extend(label.cpu().detach().tolist())
         pred_list.extend(pred.cpu().detach().tolist())
         loss_logger += critic_loss.item()
-        optimizer.step()
         iter_num+=1
     lrsch.step()
 
@@ -149,6 +149,7 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='
     log_metric('Train Optim',logger,loss_logger,label_list,pred_list)
 
 def validate(testloader, model, criterion, optimizer, lrsch, logger, args):
+    model_enhance.eval()
     model.eval()
     loss_logger = 0.
     label_list = []
@@ -202,9 +203,8 @@ if args.test == True:
     # sample_enhancement(model,None,-1,args)  # test optimization
     testing(valloader,model,criterion,None,lrsch,logger,args)    # test performance on dataset
 else:
-    if args.from_check_point != '':
-        model.load_state_dict(torch.load(pth_location))
-        model_nt.load_state_dict(torch.load(pth_nt_location))
+    model.load_state_dict(torch.load(pth_location))
+    model_nt.load_state_dict(torch.load(pth_nt_location))
     for i in range(args.epoch):
         print("===========Epoch:{}==============".format(i))
         # if i==0:

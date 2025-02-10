@@ -201,9 +201,11 @@ class OutConv(nn.Module):   # different from original
         return self.conv(x)
 
 if __name__ == '__main__':
+    from torchsummary import summary
     # Create a dummy input tensor of shape (1, 3, H, W)
     dummy_input = torch.randn(1,3,64,64)
     # Example usage with the final corrected model
     model_final = colorFilter()
     output_final = model_final(dummy_input)
     print(output_final.shape)  # Should be (1, 3, 64, 64)
+    summary(model_final.cuda(),(3,512,512),64)

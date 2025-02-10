@@ -14,6 +14,7 @@ import json
 from tqdm import tqdm
 from imblearn.under_sampling import RandomUnderSampler
 import argparse
+import colour
 
 parser = argparse.ArgumentParser(description='COLOR-ENHANCEMENT')
 parser.add_argument('--dataset', type=str, default='/work/mingjundu/imagenet100k/')
@@ -52,7 +53,15 @@ category_names = list(category_map.keys())
 def classify_color(rgb):
     # calculate norm as distance between input color and template colors
     # rgb = rgb.reshape(3,1)
-    distances = np.linalg.norm(color_value_array - rgb, axis=1)
+    # distances = np.linalg.norm(color_value_array - rgb, axis=1)
+    def sRGB_to_Lab(rgb1):
+        assert np.max(rgb1)<1.001
+        xyz1 = colour.sRGB_to_XYZ(rgb1)
+        lab1 = colour.XYZ_to_Lab(xyz1)
+        return lab1
+    color_value_array_lab = sRGB_to_Lab(color_value_array/255.)
+    input_lab = sRGB_to_Lab(rgb/255.)
+    distances = np.linalg.norm(color_value_array_lab - input_lab, axis=1)
     index = np.argmin(distances)
     return category_map[color_name[index]]
 

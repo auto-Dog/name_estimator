@@ -8,7 +8,8 @@ from network import ViT,colorLoss
 from utils.cvdObserver import cvdSimulateNet
 from colour.blindness import matrix_cvd_Machado2009
 
-prefix = 'vit_cn5'
+prefix = 'vit_cn5c'
+pic_name = "apple-optim.PNG"
 pth_location = './Models/model_'+prefix+'.pth'
 model = ViT('ColorViT', pretrained=False,image_size=512,patches=16,num_layers=6,num_heads=6,num_classes=1000)
 model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
@@ -137,6 +138,6 @@ def visualize_name(img:np.ndarray):
     plt.savefig('predict_colors_on_image_cvd.png')
 
 from PIL import Image
-img = Image.open('apple-icon.png').convert('RGB').resize((512,512))
+img = Image.open(pic_name).convert('RGB').resize((512,512))
 img = np.array(img)/255.
 visualize_name(img)

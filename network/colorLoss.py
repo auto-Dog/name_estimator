@@ -61,7 +61,7 @@ class colorLoss(nn.Module):
         '''given N embeddings, return their cloest color type in index form'''
         x = x / x.norm(p=2, dim=-1, keepdim=True)   # L2 norm for cosine similarity
         all_similarity = torch.matmul(x,self.all_embeddings.T)  # B x classes
-        val,class_index = torch.max(torch.exp(all_similarity),dim=1)    # Nx1
+        val,class_index = torch.max(torch.exp(all_similarity),dim=1,keepdim=True)    # Nx1
         # use str names
         class_index_gt = [self.all_names[x_name_i] for i,x_name_i in enumerate(x_names)]   # get GT index of color
         class_index_gt = torch.vstack(class_index_gt)

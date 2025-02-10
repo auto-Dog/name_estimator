@@ -82,8 +82,8 @@ cvd_process = cvdSimulateNet(cvd_type=args.cvd,cuda=True,batched_input=True) # c
 # trainset, valset = torch.utils.data.random_split(trainset, [train_size, val_size])
 print(f'Dataset Information: Training Samples:{len(trainset)}, Validating Samples:{len(valset)}')
 
-trainloader = torch.utils.data.DataLoader(trainset,batch_size=args.batchsize,shuffle = True,num_workers=4)
-valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize,shuffle = True,num_workers=4)
+trainloader = torch.utils.data.DataLoader(trainset,batch_size=args.batchsize,shuffle = True,num_workers=8)
+valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize,shuffle = True,num_workers=8)
 # testloader = torch.utils.data.DataLoader(testset,batch_size=args.batchsize,shuffle = False)
 # inferenceloader = torch.utils.data.DataLoader(inferenceset,batch_size=args.batchsize,shuffle = False,)
 # trainval_loader = {'train' : trainloader, 'valid' : validloader}
@@ -196,6 +196,7 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='
 
 def validate(testloader, model, criterion, optimizer, lrsch, logger, args, phase='eval', optim_model=None):
     model.eval()
+    optim_model.eval()
     loss_logger = 0.
     label_list = []
     pred_list  = []
@@ -306,13 +307,13 @@ else:
         print("===========Epoch:{}==============".format(i))
         # if i==0:
         #     sample_enhancement(model,None,i,args) # debug
-        train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train')
-        # train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
-        score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval')
-        # score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
-        # sample_enhancement(model,None,i,args)
+        train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',filtermodel)
+        train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
+        score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)
+        score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
+        sample_enhancement(model,None,i,args)
         if score > best_score:
             best_score = score
             torch.save(model_save, pth_location)
-        # if score_optim > score:
-        #     torch.save(model_optim_save, pth_optim_location)
+        if score_optim > score:
+            torch.save(model_optim_save, pth_optim_location)

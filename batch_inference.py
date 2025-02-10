@@ -34,7 +34,7 @@ parser.add_argument("--cvd", type=str, default='deutan')
 # C-Glow parameters
 parser.add_argument("--x_bins", type=float, default=256.0)  # noise setting, to make input continues-like
 parser.add_argument("--y_bins", type=float, default=256.0)
-parser.add_argument("--prefix", type=str, default='vit_cn2')
+parser.add_argument("--prefix", type=str, default='vit_cn5c')
 args = parser.parse_args()
 print(args) # show all parameters
 ### write model configs here
@@ -157,13 +157,71 @@ def classify_color(rgb):
 
 # 产生指定颜色值
 colors = []
+
+# 定义色调
+hues = ['5PB', '10B', '5B', '10BG', '5BG', '10G', '5G', '10GY', '5GY', '10Y', '5Y', '10YR', '5YR', '10R', '5R', '10RP', '5RP', '10P', '5P', '10PB']
+# 定义明度等级
+values = [3, 4, 5, 6, 7, 8, 9]
+
+# 存储RGB颜色值
+rgb_colors = []
+df_mun = pd.read_csv('./munsell_xyY.csv')
+
+def munsell_to_rgb(hue, value, chroma=6):
+    ''' 用于转换Munsell颜色到RGB(0-255) '''
+    max_srgb_exist = False
+    while not max_srgb_exist:
+        MRS_c = f'{hue} {value}/{chroma}'   # e.g. 4.2YR 8.1/5.3
+
+        # The first step is to convert the *MRS* colour to *CIE xyY* 
+        # colourspace.
+        xyY = colour.munsell_colour_to_xyY(MRS_c)
+        # We then perform conversion to *CIE xyY* tristimulus values.
+        XYZ = colour.xyY_to_XYZ(xyY)
+
+        # The last step will involve using the *Munsell Renotation System*
+        # illuminant which is *CIE Illuminant C*:
+        # http://nbviewer.ipython.org/github/colour-science/colour-ipython/blob/master/notebooks/colorimetry/illuminants.ipynb#CIE-Illuminant-C
+        # It is necessary in order to ensure white stays white when
+        # converting to *sRGB* colourspace and its different whitepoint 
+        # (*CIE Standard Illuminant D65*) by performing chromatic 
+        # adaptation between the two different illuminant.
+        # C = colour.ILLUMINANTS['CIE 1931 2 Degree Standard Observer']['C']
+        RGB = colour.XYZ_to_sRGB(XYZ)*255
+        if min(RGB)>=0 and max(RGB)<=255:
+            max_srgb_exist = True
+        chroma -= 2
+    # print(f'{MRS_c}:{xyY}') # debug
+    return RGB,MRS_c.replace('/','-')
+
+def get_max_chroma(H: str, V: float) -> int:
+    """
+    根据色相 H 和明度 V，返回对应的最大彩度 Cmax。
+    """
+    # 查找特定 H 和 V 的数据行
+    filtered_df = df_mun[(df_mun['h'] == H) & (df_mun['V'] == V)]
+    
+    # 如果找到了对应的数据，返回该条件下的最大彩度
+    if not filtered_df.empty:
+        Cmax = filtered_df['C'].max()  # 获取该条件下的最大彩度
+        return Cmax
+    else:
+        raise ValueError(f"没有找到对应的 H: {H} 和 V: {V} 的数据")
+
+colors = []
+munsell_colors = []
+# 生成颜色
+for hue in hues:
+    for value in values:
+        max_chroma = get_max_chroma(hue,value)
+        rgb,munsell_str = munsell_to_rgb(hue, value, max_chroma)
+        colors.append(rgb)
+        munsell_colors.append(munsell_str)
 # for r in range(0, 256, 10):
 #     for g in range(0, 256, 10):
 #         for b in range(0, 256, 10):
 #             colors.append((r, g, b))
-colour.munsell_colour_to_xyY()
-colour.xyY_to_XYZ()
-colour.XYZ_to_sRGB
+
 label_list = []
 pred_list = []
 for rgb_value_ori in tqdm(colors):
@@ -176,7 +234,10 @@ for rgb_value_ori in tqdm(colors):
     with torch.no_grad():
         outs = model(img.cuda())
     patch_color_name = classify_color(rgb_value_ori)
+    outs = outs[:,512,:]    # 取最中间部分的输出embedding
+    # print(outs.shape)   # debug
     pred,label = criterion.classification(outs,(patch_color_name,))
+    # print('pred shape:',pred.shape,'label shape:',label.shape)  # debug
     label_list.extend(label.cpu().detach().tolist())
     pred_list.extend(pred.cpu().detach().tolist())
 
@@ -184,4 +245,11 @@ cls_report = classification_report(label_list, pred_list, output_dict=True, zero
 acc = accuracy_score(label_list, pred_list)
 print(cls_report)   # all class information
 results_out = np.hstack([label_list,pred_list])
-np.savetxt( "colormap_sphere.csv", results_out, delimiter=",") # 保存结果
+# np.savetxt( "colormap_sphere.csv", results_out, delimiter=",") # 保存结果
+
+# for munsell experiment
+print(pred_list) # debug
+pred_mat = np.array(pred_list,dtype=int).flatten().reshape(-1,7).T
+category_names = np.array(category_names,dtype='U10')
+category_names_mat = category_names[pred_mat]
+np.savetxt( "colormap_munsell.csv", category_names_mat, delimiter=",",fmt="%s") # 保存结果
