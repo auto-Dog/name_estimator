@@ -210,13 +210,20 @@ def get_max_chroma(H: str, V: float) -> int:
 
 colors = []
 munsell_colors = []
-# 生成颜色
-for hue in hues:
-    for value in values:
-        max_chroma = get_max_chroma(hue,value)
-        rgb,munsell_str = munsell_to_rgb(hue, value, max_chroma)
-        colors.append(rgb)
-        munsell_colors.append(munsell_str)
+# # 生成颜色命名实验的颜色
+# for hue in hues:
+#     for value in values:
+#         max_chroma = get_max_chroma(hue,value)
+#         rgb,munsell_str = munsell_to_rgb(hue, value, max_chroma)
+#         colors.append(rgb)
+#         munsell_colors.append(munsell_str)
+
+# 生成deutan的混淆色
+for lg in range(0,256,50):
+    for lb in range(0,256,50):
+        colors.append((lg,lg,lb))
+
+## 生成RGB空间中等间距的颜色
 # for r in range(0, 256, 10):
 #     for g in range(0, 256, 10):
 #         for b in range(0, 256, 10):
@@ -245,11 +252,11 @@ cls_report = classification_report(label_list, pred_list, output_dict=True, zero
 acc = accuracy_score(label_list, pred_list)
 print(cls_report)   # all class information
 results_out = np.hstack([label_list,pred_list])
-# np.savetxt( "colormap_sphere.csv", results_out, delimiter=",") # 保存结果
+np.savetxt( "colormap_sphere.csv", results_out, delimiter=",") # 保存结果
 
-# for munsell experiment
-print(pred_list) # debug
-pred_mat = np.array(pred_list,dtype=int).flatten().reshape(-1,7).T
-category_names = np.array(category_names,dtype='U10')
-category_names_mat = category_names[pred_mat]
-np.savetxt( "colormap_munsell.csv", category_names_mat, delimiter=",",fmt="%s") # 保存结果
+# # for munsell experiment
+# print(pred_list) # debug
+# pred_mat = np.array(pred_list,dtype=int).flatten().reshape(-1,7).T
+# category_names = np.array(category_names,dtype='U10')
+# category_names_mat = category_names[pred_mat]
+# np.savetxt( "colormap_munsell.csv", category_names_mat, delimiter=",",fmt="%s") # 保存结果

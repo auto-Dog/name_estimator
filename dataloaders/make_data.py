@@ -52,8 +52,9 @@ category_names = list(category_map.keys())
 
 def classify_color(rgb):
     # calculate norm as distance between input color and template colors
-    # rgb = rgb.reshape(3,1)
+    ## use distance in RGB #
     # distances = np.linalg.norm(color_value_array - rgb, axis=1)
+    ## or use distance in Lab #
     def sRGB_to_Lab(rgb1):
         assert np.max(rgb1)<1.001
         xyz1 = colour.sRGB_to_XYZ(rgb1)
@@ -62,6 +63,14 @@ def classify_color(rgb):
     color_value_array_lab = sRGB_to_Lab(color_value_array/255.)
     input_lab = sRGB_to_Lab(rgb/255.)
     distances = np.linalg.norm(color_value_array_lab - input_lab, axis=1)
+    
+    # # or use distance in HSV
+    # color_value_array_hsv = colour.RGB_to_HSV(color_value_array/255.)
+    # input_hsv = colour.RGB_to_HSV(rgb/255.)
+    # distances = np.linalg.norm(color_value_array_hsv - input_hsv, axis=1)    
+    # check if it is gray
+    if(input_lab[0]>10 and input_lab[0]<90 and abs(input_lab[1])<5 and abs(input_lab[2])<5):
+        return 5
     index = np.argmin(distances)
     return category_map[color_name[index]]
 
@@ -100,7 +109,7 @@ def make_data_label(loader,filename):
     X_train = []
     Y_train = []
     for img,path in tqdm(loader):
-        for i in range(60):  # 每张图采样十个颜色点，实际可能不会全部采纳
+        for i in range(20):  # 每张图采样十个颜色点，实际可能不会全部采纳
             color_names = np.array([-1,-1,-1, -1,-1,-1, -1,-1,-1])
             x_index = np.random.randint(1,30)
             y_index = np.random.randint(1,30)
@@ -110,7 +119,7 @@ def make_data_label(loader,filename):
             target = color_names[4]
             target_patch_id = x_index*32+y_index
             mask = (color_names==target)
-            if np.sum(mask)>=3: # voting,至少有3/9个像素支持当前颜色
+            if np.sum(mask)>=5: # voting,至少有5/9个像素支持当前颜色
                 X_train.append((path[0],target_patch_id))
                 Y_train.append(target)
         # if len(Y_train)>1000:   # debug

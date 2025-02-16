@@ -13,6 +13,7 @@ from PIL import Image
 import os
 import pandas as pd
 import json
+import colour
 
 class CVDcifar(CIFAR10):
     def __init__(        
@@ -216,9 +217,23 @@ class CVDImageNetRand(ImageFolder):
             'Yellow':10,
             'Brown': 11
         }
-        distances = np.linalg.norm(self.color_value_array - rgb, axis=1)
+        # distances = np.linalg.norm(self.color_value_array - rgb, axis=1)
+        # index = np.argmin(distances)
+        # return self.color_names[index], category_map[self.color_names[index]]   # return color words and index
+        def sRGB_to_Lab(rgb1):
+            xyz1 = colour.sRGB_to_XYZ(rgb1)
+            lab1 = colour.XYZ_to_Lab(xyz1)
+            return lab1
+        color_value_array_lab = sRGB_to_Lab(self.color_value_array/255.)
+        input_lab = sRGB_to_Lab(rgb/255.)
+        distances = np.linalg.norm(color_value_array_lab - input_lab, axis=1)
+
         index = np.argmin(distances)
-        return self.color_names[index], category_map[self.color_names[index]]   # return color words and index
+        # check if it is gray
+        if(input_lab[0]>10 and input_lab[0]<90 and abs(input_lab[1])<5 and abs(input_lab[2])<5):
+            return 'Gray',5
+        # return color_name[index],None
+        return self.color_names[index],category_map[self.color_names[index]]
 
 class CVDPlace(CVDImageNet):
     def __init__(self, root: str, split: str = "train", patch_size=4, img_size=64,**kwargs: Any) -> None:
