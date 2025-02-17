@@ -1,7 +1,7 @@
 import argparse
 import os
 import time
-
+import cv2
 import torch
 import torch.nn as nn
 import torch.optim
@@ -34,7 +34,7 @@ parser.add_argument("--cvd", type=str, default='deutan')
 # C-Glow parameters
 parser.add_argument("--x_bins", type=float, default=256.0)  # noise setting, to make input continues-like
 parser.add_argument("--y_bins", type=float, default=256.0)
-parser.add_argument("--prefix", type=str, default='vit_cn5c')
+parser.add_argument("--prefix", type=str, default='vit_cn5d')
 args = parser.parse_args()
 print(args) # show all parameters
 ### write model configs here
@@ -149,9 +149,31 @@ category_map = {
 }
 category_names = list(category_map.keys())
 
+def sRGB_to_Lab(rgb1):
+    rgb_batch = np.float32(rgb1)
+    # 重新调整输入数组的形状，使其成为 (n, 1, 3)，符合OpenCV的要求
+    ori_shape = rgb_batch.shape
+    rgb_batch = rgb_batch.reshape(-1, 1, 3)
+    # 使用OpenCV的cvtColor函数转换RGB到Lab
+    lab_batch = cv2.cvtColor(rgb_batch, cv2.COLOR_RGB2Lab)
+    return lab_batch.reshape(ori_shape)  # 还原形状
+color_value_array_lab = sRGB_to_Lab(color_value_array/255.)
+
 def classify_color(rgb):
     # calculate norm as distance between input color and template colors
-    distances = np.linalg.norm(color_value_array - rgb, axis=1)
+    ## use distance in RGB #
+    # distances = np.linalg.norm(color_value_array - rgb, axis=1)
+    ## or use distance in Lab #
+    input_lab = sRGB_to_Lab(rgb/255.)
+    distances = np.linalg.norm(color_value_array_lab - input_lab, axis=1)
+    
+    # # or use distance in HSV
+    # color_value_array_hsv = colour.RGB_to_HSV(color_value_array/255.)
+    # input_hsv = colour.RGB_to_HSV(rgb/255.)
+    # distances = np.linalg.norm(color_value_array_hsv - input_hsv, axis=1)    
+    # check if it is gray
+    if(input_lab[0]>10 and input_lab[0]<90 and abs(input_lab[1])<5 and abs(input_lab[2])<5):
+        return 5
     index = np.argmin(distances)
     return color_name[index]
 
@@ -210,18 +232,18 @@ def get_max_chroma(H: str, V: float) -> int:
 
 colors = []
 munsell_colors = []
-# # 生成颜色命名实验的颜色
-# for hue in hues:
-#     for value in values:
-#         max_chroma = get_max_chroma(hue,value)
-#         rgb,munsell_str = munsell_to_rgb(hue, value, max_chroma)
-#         colors.append(rgb)
-#         munsell_colors.append(munsell_str)
+# 生成颜色命名实验的颜色
+for hue in hues:
+    for value in values:
+        max_chroma = get_max_chroma(hue,value)
+        rgb,munsell_str = munsell_to_rgb(hue, value, max_chroma)
+        colors.append(rgb)
+        munsell_colors.append(munsell_str)
 
-# 生成deutan的混淆色
-for lg in range(0,256,50):
-    for lb in range(0,256,50):
-        colors.append((lg,lg,lb))
+# # 生成deutan的混淆色
+# for lg in range(0,256,50):
+#     for lb in range(0,256,50):
+#         colors.append((lg,lg,lb))
 
 ## 生成RGB空间中等间距的颜色
 # for r in range(0, 256, 10):
@@ -254,9 +276,9 @@ print(cls_report)   # all class information
 results_out = np.hstack([label_list,pred_list])
 np.savetxt( "colormap_sphere.csv", results_out, delimiter=",") # 保存结果
 
-# # for munsell experiment
-# print(pred_list) # debug
-# pred_mat = np.array(pred_list,dtype=int).flatten().reshape(-1,7).T
-# category_names = np.array(category_names,dtype='U10')
-# category_names_mat = category_names[pred_mat]
-# np.savetxt( "colormap_munsell.csv", category_names_mat, delimiter=",",fmt="%s") # 保存结果
+# for munsell experiment
+print(pred_list) # debug
+pred_mat = np.array(pred_list,dtype=int).flatten().reshape(-1,7).T
+category_names = np.array(category_names,dtype='U10')
+category_names_mat = category_names[pred_mat]
+np.savetxt( "colormap_munsell.csv", category_names_mat, delimiter=",",fmt="%s") # 保存结果

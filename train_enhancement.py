@@ -87,14 +87,15 @@ def wgan_train(classifier1,classifier2,enhancement,enhancement_optimizer,critic,
     ''' Train conditional Wasserstein GAN for one step '''
     # one = torch.FloatTensor(1).cuda()
     # mone = -1*one
-    y1 = classifier1(x)
+
     # random_seed = torch.rand(x.shape[0],1).cuda()
     # limit the gradient, clamp parameters to a cube
     for p in critic.parameters():
         p.data.clamp_(-0.01,0.01)
-    x2 = enhancement(x)
-    x2 = cvd_process(x2)
-    y2 = classifier2(x2)
+    x = enhancement(x)
+    x = cvd_process(x)
+    y = classifier2(x)
+    y1, y2, x1, x2 =    # TODO: split y1 y2 by its loss function
     # train critic function
     critic_optimizer.zero_grad()
     real_validity = critic(y1,x)

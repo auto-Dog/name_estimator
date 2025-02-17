@@ -179,7 +179,7 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='
             batch_index = torch.arange(len(outs),dtype=torch.long)   # 配合第二维度索引使用
             outs = outs[batch_index,patch_id] # 取出目标位置的颜色embedding
             # print('Model use:',time.time()-st_time) # debug
-            loss_batch = 10*criterion(outs,patch_color_name)+criterion2(img_t,img_ori)
+            loss_batch = 5*criterion(outs,patch_color_name)+criterion2(img_t,img_ori)
             # print('Loss Func. use:',time.time()-st_time)    # debug
             pred,label = criterion.classification(outs,patch_color_name)
             # print('Classification use:',time.time()-st_time)    # debug

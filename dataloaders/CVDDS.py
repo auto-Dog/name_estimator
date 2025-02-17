@@ -140,6 +140,15 @@ class CVDImageNet():
             img = Image.open(f)
             return img.convert('RGB')
 
+def sRGB_to_Lab(rgb1):
+    rgb_batch = np.float32(rgb1)
+    # 重新调整输入数组的形状，使其成为 (n, 1, 3)，符合OpenCV的要求
+    ori_shape = rgb_batch.shape
+    rgb_batch = rgb_batch.reshape(-1, 1, 3)
+    # 使用OpenCV的cvtColor函数转换RGB到Lab
+    lab_batch = cv2.cvtColor(rgb_batch, cv2.COLOR_RGB2Lab)
+    return lab_batch.reshape(ori_shape)  # 还原形状
+
 class CVDImageNetRand(ImageFolder):
     def __init__(self, root: str, split: str = "train", patch_size=16, img_size=512, cvd='deutan',**kwargs: Any) -> None:
         target_path = os.path.join(root,split)
@@ -167,6 +176,7 @@ class CVDImageNetRand(ImageFolder):
             color_value.append(rgb_array)
 
         self.color_value_array = np.array(color_value)
+        self.color_value_array_lab = sRGB_to_Lab(self.color_value_array/255.)
         
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         """
@@ -220,13 +230,9 @@ class CVDImageNetRand(ImageFolder):
         # distances = np.linalg.norm(self.color_value_array - rgb, axis=1)
         # index = np.argmin(distances)
         # return self.color_names[index], category_map[self.color_names[index]]   # return color words and index
-        def sRGB_to_Lab(rgb1):
-            xyz1 = colour.sRGB_to_XYZ(rgb1)
-            lab1 = colour.XYZ_to_Lab(xyz1)
-            return lab1
-        color_value_array_lab = sRGB_to_Lab(self.color_value_array/255.)
+
         input_lab = sRGB_to_Lab(rgb/255.)
-        distances = np.linalg.norm(color_value_array_lab - input_lab, axis=1)
+        distances = np.linalg.norm(self.color_value_array_lab - input_lab, axis=1)
 
         index = np.argmin(distances)
         # check if it is gray

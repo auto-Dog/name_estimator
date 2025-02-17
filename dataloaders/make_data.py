@@ -50,20 +50,21 @@ category_map = {
 }
 category_names = list(category_map.keys())
 
+def sRGB_to_Lab(rgb1):
+    rgb_batch = np.float32(rgb1)
+    # 重新调整输入数组的形状，使其成为 (n, 1, 3)，符合OpenCV的要求
+    ori_shape = rgb_batch.shape
+    rgb_batch = rgb_batch.reshape(-1, 1, 3)
+    # 使用OpenCV的cvtColor函数转换RGB到Lab
+    lab_batch = cv2.cvtColor(rgb_batch, cv2.COLOR_RGB2Lab)
+    return lab_batch.reshape(ori_shape)  # 还原形状
+color_value_array_lab = sRGB_to_Lab(color_value_array/255.)
+
 def classify_color(rgb):
     # calculate norm as distance between input color and template colors
     ## use distance in RGB #
     # distances = np.linalg.norm(color_value_array - rgb, axis=1)
     ## or use distance in Lab #
-    def sRGB_to_Lab(rgb1):
-        rgb_batch = np.float32(rgb1)
-        # 重新调整输入数组的形状，使其成为 (n, 1, 3)，符合OpenCV的要求
-        ori_shape = rgb_batch.shape
-        rgb_batch = rgb_batch.reshape(-1, 1, 3)
-        # 使用OpenCV的cvtColor函数转换RGB到Lab
-        lab_batch = cv2.cvtColor(rgb_batch, cv2.COLOR_RGB2Lab)
-        return lab_batch.reshape(ori_shape)  # 还原形状
-    color_value_array_lab = sRGB_to_Lab(color_value_array/255.)
     input_lab = sRGB_to_Lab(rgb/255.)
     distances = np.linalg.norm(color_value_array_lab - input_lab, axis=1)
     
