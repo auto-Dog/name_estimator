@@ -113,7 +113,7 @@ def make_data_label(loader,filename):
     X_train = []
     Y_train = []
     for img,path in tqdm(loader):
-        for i in range(20):  # 每张图采样十个颜色点，实际可能不会全部采纳
+        for i in range(50):  # 每张图采样十个颜色点，实际可能不会全部采纳
             color_names = np.array([-1,-1,-1, -1,-1,-1, -1,-1,-1])
             x_index = np.random.randint(1,30)
             y_index = np.random.randint(1,30)

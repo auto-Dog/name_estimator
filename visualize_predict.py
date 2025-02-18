@@ -11,7 +11,7 @@ from colour.blindness import matrix_cvd_Machado2009
 prefix = 'vit_cn5c'
 pic_name = "apple-optim.PNG"
 pth_location = './Models/model_'+prefix+'.pth'
-model = ViT('ColorViT', pretrained=False,image_size=512,patches=16,num_layers=6,num_heads=6,num_classes=1000)
+model = ViT('ColorViT', pretrained=False,image_size=256,patches=8,num_layers=6,num_heads=6,num_classes=1000)
 model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
 model = model.cuda()
 model.load_state_dict(torch.load(pth_location, map_location='cpu'))

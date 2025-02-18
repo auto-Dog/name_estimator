@@ -6,32 +6,32 @@ from torch import nn
 import torch.nn.functional as F
 
 class criticNet(nn.Module):
-    def __init__(self):
+    def __init__(self,input_size=256):
         super().__init__()
-        self.layer1 = DoubleConv(768+64,512)
-        self.layer2 = DoubleConv(512,256)
-        self.layer3 = DoubleConv(256,256)
         self.conditionneck = nn.Sequential(
-            nn.AdaptiveAvgPool2d((64,64)),
-            nn.Conv2d(3,64,(3,3),2,1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
+            DoubleConv(3,64),
+            nn.MaxPool2d(2),
+            DoubleConv(64,512),
+            nn.AdaptiveAvgPool2d((32,32)),
         )
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.pooling = nn.MaxPool2d(2)
-        self.fc = nn.Linear(256,1)
+        self.fc = nn.Sequential(
+            nn.Linear(256+768,1024),
+            nn.ReLU(),
+            nn.Linear(1024,1)
+        )
 
-    def forward(self,y,x):
-        x = self.conditionneck(x)
-        y = y.permute(0,2,1).contiguous().reshape(-1,768,32,32)
-
-        yx = torch.cat([y,x],dim=1)
-        yx = self.layer1(yx)
-        yx = self.pooling(yx)
-        yx = self.layer2(yx)
-        yx = self.pooling(yx)
-        yx = self.layer3(yx)
-        yx = self.avgpool(yx).squeeze(-1).squeeze(-1)
+    def forward(self,img,ids,embedding):
+        # img, id, embedding at id
+        x = self.conditionneck(img)   # B,C,32,32
+        # extract original value
+        ori_shape = ids.shape
+        batch_index = torch.arange(ori_shape[0],dtype=torch.long)   # 配合第二维度索引使用
+        x[batch_index,:,ids//32,ids%32] *= 100   # B,3,1,1
+        x = self.avgpool(x).squeeze(-1).squeeze(-1)
+        y = embedding.squeeze()
+        yx = torch.cat([x,y],dim=1)
         out = self.fc(yx)
         return out
 
@@ -55,8 +55,9 @@ class DoubleConv(nn.Module):
         return self.double_conv(x)
     
 if __name__ == '__main__':
-    y = torch.rand(2,1024,768)
-    x = torch.rand(2,3,512,512)
+    y = torch.rand(2,768)
+    label = torch.randint(0,11,(2,))
+    x = torch.rand(2,3,256,256)
     model = criticNet()
-    out = model(y,x)
+    out = model(x,label,y)
     print(out.shape)

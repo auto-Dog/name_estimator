@@ -38,8 +38,8 @@ num_classes = 6
 # argparse here
 parser = argparse.ArgumentParser(description='COLOR-ENHANCEMENT')
 parser.add_argument('--lr',type=float, default=1e-4)
-parser.add_argument('--patch',type=int, default=16)
-parser.add_argument('--size',type=int, default=512)
+parser.add_argument('--patch',type=int, default=8)
+parser.add_argument('--size',type=int, default=256)
 parser.add_argument('--t', type=float, default=0.5)
 parser.add_argument('--save_interval', type=int, default=5)
 parser.add_argument('--test_fold','-f',type=int)
@@ -49,8 +49,8 @@ parser.add_argument('--epoch', type=int, default=50)
 parser.add_argument('--dataset', type=str, default='/work/mingjundu/imagenet100k/')
 parser.add_argument("--cvd", type=str, default='deutan')
 parser.add_argument("--tau", type=float, default=0.3)
-parser.add_argument("--x_bins", type=float, default=256.0)  # noise setting, to make input continues-like
-parser.add_argument("--y_bins", type=float, default=256.0)
+parser.add_argument("--x_bins", type=float, default=128.0)  # noise setting, to make input continues-like
+parser.add_argument("--y_bins", type=float, default=128.0)
 parser.add_argument("--prefix", type=str, default='vit_cn5')
 parser.add_argument('--from_check_point',type=str,default='')
 args = parser.parse_args()
@@ -308,12 +308,12 @@ else:
         # if i==0:
         #     sample_enhancement(model,None,i,args) # debug
         train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',filtermodel)
-        train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
+        # train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
         score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)
-        score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
+        # score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
         sample_enhancement(model,None,i,args)
         if score > best_score:
             best_score = score
             torch.save(model_save, pth_location)
-        if score_optim > score:
-            torch.save(model_optim_save, pth_optim_location)
+        # if score_optim > score:
+        #     torch.save(model_optim_save, pth_optim_location)
