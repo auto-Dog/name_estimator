@@ -199,7 +199,7 @@ class CVDImageNetRand(ImageFolder):
         patch = self.cvd_observer(patch_target)
         img = self.cvd_observer(img)
 
-        return img, patch, img_target, patch_target, patch_color_name, patch_color_embedding # CVD image, CVD patch, image target, patch target
+        return img, patch, img_target, patch_target, patch_color_name, patch_id # CVD image, CVD patch, image target, patch target
     
     def getEmbedding(self,color_patch):
         '''Given a color patch, return its color type number and embedding'''
