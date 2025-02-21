@@ -17,12 +17,13 @@ class criticNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.pooling = nn.MaxPool2d(2)
         self.fc = nn.Sequential(
-            nn.Linear(256+768,1024),
+            nn.Linear(512+768,1024),
             nn.ReLU(),
             nn.Linear(1024,1)
         )
 
-    def forward(self,img,ids,embedding):
+    def forward(self,input_y):
+        img,ids,embedding = input_y[0],input_y[1],input_y[2]
         # img, id, embedding at id
         x = self.conditionneck(img)   # B,C,32,32
         # extract original value
@@ -59,5 +60,5 @@ if __name__ == '__main__':
     label = torch.randint(0,11,(2,))
     x = torch.rand(2,3,256,256)
     model = criticNet()
-    out = model(x,label,y)
+    out = model([x,label,y])
     print(out.shape)

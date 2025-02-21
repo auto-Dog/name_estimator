@@ -46,7 +46,7 @@ parser.add_argument('--test_fold','-f',type=int)
 parser.add_argument('--batchsize',type=int,default=8)
 parser.add_argument('--test',type=bool,default=False)
 parser.add_argument('--epoch', type=int, default=50)
-parser.add_argument('--dataset', type=str, default='/work/mingjundu/imagenet100k/')
+parser.add_argument('--dataset', type=str, default='/data/mingjundu/imagenet100k/')
 parser.add_argument("--cvd", type=str, default='deutan')
 parser.add_argument("--tau", type=float, default=0.3)
 parser.add_argument("--x_bins", type=float, default=128.0)  # noise setting, to make input continues-like

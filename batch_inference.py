@@ -5,6 +5,7 @@ import cv2
 import torch
 import torch.nn as nn
 import torch.optim
+from torchvision.transforms import Resize
 import numpy as np
 import torch.utils.data
 from sklearn.metrics import classification_report, roc_auc_score, roc_curve, accuracy_score
@@ -253,11 +254,13 @@ for hue in hues:
 
 label_list = []
 pred_list = []
+resize_func = Resize(args.size)
 for rgb_value_ori in tqdm(colors):
     # 产生指定颜色值色块
     img,ci_patch = render_patch(rgb_value_ori)
     img = torch.from_numpy(img).permute(2,0,1).unsqueeze(0)/255.
     ci_patch = torch.from_numpy(ci_patch).permute(2,0,1).unsqueeze(0)/255.
+    img = resize_func(img)
     img = cvd_process(img)
     ci_patch = cvd_process(ci_patch)
     with torch.no_grad():

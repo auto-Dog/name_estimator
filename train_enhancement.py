@@ -34,10 +34,10 @@ parser.add_argument('--test_fold','-f',type=int)
 parser.add_argument('--batchsize',type=int,default=8)
 parser.add_argument('--test',type=bool,default=False)
 parser.add_argument('--epoch', type=int, default=50)
-parser.add_argument('--dataset', type=str, default='/work/mingjundu/imagenet100k/')
+parser.add_argument('--dataset', type=str, default='/data/mingjundu/imagenet100k/')
 parser.add_argument("--cvd", type=str, default='deutan')
 parser.add_argument("--tau", type=float, default=0.3)
-parser.add_argument("--n_critic", type=int, default=5)
+parser.add_argument("--n_critic", type=int, default=10)
 parser.add_argument("--x_bins", type=float, default=128.0)  # noise setting, to make input continues-like
 parser.add_argument("--y_bins", type=float, default=128.0)
 parser.add_argument("--prefix", type=str, default='vit_cn5')
@@ -58,8 +58,8 @@ valset = CVDImageNet(args.dataset,split='imagenet_subval',patch_size=args.patch,
 cvd_process = cvdSimulateNet(cvd_type=args.cvd,cuda=True,batched_input=True) # cvd模拟器
 print(f'Dataset Information: Training Samples:{len(trainset)}, Validating Samples:{len(valset)}')
 
-trainloader = torch.utils.data.DataLoader(trainset,batch_size=args.batchsize,shuffle = True,num_workers=4)
-valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize,shuffle = True,num_workers=4)
+trainloader = torch.utils.data.DataLoader(trainset,batch_size=args.batchsize,shuffle = True,num_workers=8)
+valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize,shuffle = True,num_workers=8)
 model = ViT('ColorViT', pretrained=False,image_size=args.size,patches=args.patch,num_layers=6,num_heads=6,num_classes = 1000)
 model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
 model = model.cuda()
@@ -95,16 +95,16 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
     y1 = classifier(x1)
     y1_all = topk_sample(x,patch_id,y1,labels)
     real_validity = critic(y1_all)
-    critic_loss = torch.mean(real_validity)
-    critic_loss.backward()
+    # critic_loss = torch.mean(real_validity)
+    # critic_loss.backward()
 
-    x2 = enhancement(x)
-    x2 = cvd_process(x2)
+    xe = enhancement(x)
+    x2 = cvd_process(xe)
     y2 = classifier(x2)
-    y2_all = sample(x,patch_id,y1,labels)  
+    y2_all = sample(x,patch_id,y2,labels)  
     # train critic function
     fake_validity = critic(y2_all)
-    critic_loss = -torch.mean(fake_validity)
+    critic_loss = torch.mean(real_validity)-torch.mean(fake_validity)
     critic_loss.backward()
 
     num_accumlate = max(1,128//args.batchsize)
@@ -114,17 +114,20 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
     # train enhancement model, equals to generator
     if iter_num % args.n_critic == 0:
         enhancement_optimizer.zero_grad()
-        x2 = enhancement(x)
-        x2 = cvd_process(x2)
+        xe = enhancement(x)
+        x2 = cvd_process(xe)
         y2 = classifier(x2)
-        fake_validity = critic(y2,x)
-        enhancement_loss = torch.mean(fake_validity) + criterion_L1(x2,x)
+        y2_all = sample(x,patch_id,y2,labels) 
+        fake_validity = critic(y2_all)
+        enhancement_loss = torch.mean(fake_validity) + criterion_L1(xe,x)
         enhancement_loss.backward()
         enhancement_optimizer.step()
     return y2,critic_loss
 
 def sample(img,patch_id,embedding_patch,gts,k=11):
     ori_shape = img.shape
+    if ori_shape[0]<=k:
+        return img,patch_id,embedding_patch
     # extract embeddings at patch_id
     batch_index = torch.arange(ori_shape[0],dtype=torch.long)   # 配合第二维度索引使用
     embedding_patch = embedding_patch[batch_index,patch_id]
@@ -134,6 +137,8 @@ def sample(img,patch_id,embedding_patch,gts,k=11):
 def topk_sample(img,patch_id,embedding_patch,gts,top_k=11):
     '''calculate the correctness of embeddings, take top results on each class'''
     ori_shape = img.shape
+    if ori_shape[0]<=top_k:
+        return img,patch_id,embedding_patch
     top_k_per_cls = top_k//11
     batch_index = torch.arange(ori_shape[0],dtype=torch.long)   # 配合第二维度索引使用
     embedding_patch = embedding_patch[batch_index,patch_id]
@@ -142,18 +147,19 @@ def topk_sample(img,patch_id,embedding_patch,gts,top_k=11):
     color_types = set(gts)
     # sort the samples' loss and name by loss value (ascending)
     loss_batch,indices = torch.sort(loss_batch.flatten())
-    indices = indices.numpy()
-    gts_array = np.array(gts,dtype=str)
-    gts_array = gts_array[indices]
+    indices = indices.cpu().numpy()
     
-    out_index = []
     # choose top colors for each type
-    for color in color_types:
-        picked_sample_index = np.where(gts_array==color)[0]
-        out_index.append(picked_sample_index[:top_k_per_cls])
-    out_index = np.array(out_index)
-    indices_back = out_index[indices]   # original indices for a given sorted index
-    return img[indices_back,...],patch_id[indices_back,...],embedding_patch[indices_back,...]
+    gts_np = np.array(gts, dtype=str)
+    out_indices = []
+    for i, color in enumerate(color_types):
+        cls_indices = indices[gts_np[indices] == color]
+        cls_needed = min(top_k_per_cls,len(cls_indices))
+        selected = cls_indices[:cls_needed]
+        out_indices.extend(selected.tolist())
+
+    out_indices = torch.tensor(out_indices, device=img.device)   # original indices for a given sorted index
+    return img[out_indices,...],patch_id[out_indices,...],embedding_patch[out_indices,...]
 
 def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='train'):
     logger.update_step()
@@ -167,6 +173,7 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='
     for img, ci_patch, img_ori, _,patch_color_name, patch_id in tqdm(trainloader,ascii=True,ncols=60):
         img = img.cuda()
         img_ori = img_ori.cuda()
+        patch_id = patch_id.cuda()
         outs,critic_loss = wgan_train(img_ori,patch_id,patch_color_name,
                                       model,model_enhance,optimizer_enhance,
                                       model_critic,optimizer_critic,iter_num)
