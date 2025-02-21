@@ -299,7 +299,7 @@ if args.test == True:
     model.load_state_dict(torch.load(pth_location, map_location='cpu'))
     # filtermodel.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
     # sample_enhancement(model,None,-1,args)  # test optimization
-    testing(valloader,model,criterion,optimizer,lrsch,logger,args,'eval')    # test performance on dataset
+    testing(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)    # test performance on dataset
 else:
     if args.from_check_point != '':
         model.load_state_dict(torch.load(ckp_location))
