@@ -192,6 +192,7 @@ class CVDImageNetRand(ImageFolder):
         img = self.my_transform(sample)
         img_target = img.clone()
         random_index = torch.randint(0,self.image_size//self.patch_size,size=(2,))
+        patch_id = torch.tensor(random_index[0]*random_index[1],dtype=torch.long)
         patch_target = img[:, random_index[0]*self.patch_size:random_index[0]*self.patch_size+self.patch_size, 
                            random_index[1]*self.patch_size:random_index[1]*self.patch_size+self.patch_size]
         patch_color_embedding,patch_color_name = self.getEmbedding(patch_target) # get color names   # debug
