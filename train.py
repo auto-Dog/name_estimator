@@ -59,7 +59,7 @@ print(args) # show all parameters
 ### write model configs here
 save_root = './run'
 pth_location = './Models/model_'+args.prefix+'.pth'
-pth_optim_location = './Models/model_'+args.prefix+'_optim'+'.pth'
+pth_optim_location = './Models/model_'+args.prefix+'_optim_base'+'.pth'
 ckp_location = './Models/'+args.from_check_point
 logger = Logger(save_root)
 logger.global_step = 0
@@ -308,12 +308,14 @@ else:
         # if i==0:
         #     sample_enhancement(model,None,i,args) # debug
         train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',filtermodel)
-        # train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
         score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)
-        # score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
-        sample_enhancement(model,None,i,args)
         if score > best_score:
             best_score = score
             torch.save(model_save, pth_location)
-        # if score_optim > score:
-        #     torch.save(model_optim_save, pth_optim_location)
+
+        if (i+1)%5 == 0:
+            train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
+            score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
+            sample_enhancement(model,None,i,args)
+            if score_optim > score:
+                torch.save(model_optim_save, pth_optim_location)

@@ -74,8 +74,8 @@ model_enhance = model_enhance.cuda()
 
 criterion = colorLoss(args.tau)
 criterion_L1 = nn.L1Loss()
-optimizer_critic = torch.optim.Adamax(model_critic.parameters(), lr=args.lr, weight_decay=5e-5)
-optimizer_enhance = torch.optim.Adamax(model_enhance.parameters(), lr=args.lr, weight_decay=5e-5)
+optimizer_critic = torch.optim.RMSprop(model_critic.parameters(), lr=args.lr, weight_decay=5e-5)    # update optimizer, same as original paper
+optimizer_enhance = torch.optim.RMSprop(model_enhance.parameters(), lr=args.lr, weight_decay=5e-5)
 lr_lambda = lambda epoch: min(1.0, (epoch + 1)/5.)  # noqa
 lrsch = torch.optim.lr_scheduler.LambdaLR(optimizer_enhance, lr_lambda=lr_lambda)
 
@@ -83,7 +83,7 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
                classifier,enhancement,enhancement_optimizer,
                critic,critic_optimizer,iter_num):
     ''' Train conditional Wasserstein GAN for one step '''
-    one = torch.FloatTensor(1).cuda()
+    one = torch.FloatTensor([1]).cuda()
     mone = -1*one
 
     # random_seed = torch.rand(x.shape[0],1).cuda()
@@ -95,6 +95,8 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
     y1 = classifier(x1)
     y1_all = topk_sample(x,patch_id,y1,labels)
     real_validity = critic(y1_all)
+    real_validity = real_validity.mean(0).view(1)
+    real_validity.backward(mone)
     # critic_loss = torch.mean(real_validity)
     # critic_loss.backward()
 
@@ -104,8 +106,10 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
     y2_all = sample(x,patch_id,y2,labels)  
     # train critic function
     fake_validity = critic(y2_all)
-    critic_loss = torch.mean(real_validity)-torch.mean(fake_validity)
-    critic_loss.backward()
+    fake_validity = fake_validity.mean(0).view(1)
+    fake_validity.backward(one) # use eqn in original paper, sym. to code of author but acceptable, see issue 9 in WGAN
+    critic_loss = torch.mean(real_validity)-torch.mean(fake_validity)   # It is recommanded to plot -errD
+    # critic_loss.backward()
 
     num_accumlate = max(1,128//args.batchsize)
     if iter_num % num_accumlate == 0:
@@ -117,31 +121,31 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
         xe = enhancement(x)
         x2 = cvd_process(xe)
         y2 = classifier(x2)
-        y2_all = sample(x,patch_id,y2,labels) 
+        y2_all = sample(x,patch_id,y2,labels,k=args.batchsize) 
         fake_validity = critic(y2_all)
-        enhancement_loss = torch.mean(fake_validity) + criterion_L1(xe,x)
+        enhancement_loss = -5*torch.mean(fake_validity) + criterion_L1(xe,x)
         enhancement_loss.backward()
         enhancement_optimizer.step()
     return y2,critic_loss
 
 def sample(img,patch_id,embedding_patch,gts,k=11):
     ori_shape = img.shape
-    if ori_shape[0]<=k:
-        return img,patch_id,embedding_patch
     # extract embeddings at patch_id
     batch_index = torch.arange(ori_shape[0],dtype=torch.long)   # 配合第二维度索引使用
     embedding_patch = embedding_patch[batch_index,patch_id]
+    if ori_shape[0]<=k:
+        return img,patch_id,embedding_patch
     random_start = np.random.randint(0,ori_shape[0]-k)
     return img[random_start:random_start+k,...],patch_id[random_start:random_start+k,...],embedding_patch[random_start:random_start+k,...]
 
 def topk_sample(img,patch_id,embedding_patch,gts,top_k=11):
     '''calculate the correctness of embeddings, take top results on each class'''
     ori_shape = img.shape
+    batch_index = torch.arange(ori_shape[0],dtype=torch.long)   # 配合第二维度索引使用
+    embedding_patch = embedding_patch[batch_index,patch_id]
     if ori_shape[0]<=top_k:
         return img,patch_id,embedding_patch
     top_k_per_cls = top_k//11
-    batch_index = torch.arange(ori_shape[0],dtype=torch.long)   # 配合第二维度索引使用
-    embedding_patch = embedding_patch[batch_index,patch_id]
     loss_batch,_ = criterion.infoNCELoss(embedding_patch,gts)
     # sample ones with minimun loss for each class
     color_types = set(gts)

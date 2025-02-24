@@ -31,7 +31,7 @@ class criticNet(nn.Module):
         batch_index = torch.arange(ori_shape[0],dtype=torch.long)   # 配合第二维度索引使用
         x[batch_index,:,ids//32,ids%32] *= 100   # B,3,1,1
         x = self.avgpool(x).squeeze(-1).squeeze(-1)
-        y = embedding.squeeze()
+        y = embedding.reshape(-1,768)
         yx = torch.cat([x,y],dim=1)
         out = self.fc(yx)
         return out
@@ -57,7 +57,7 @@ class DoubleConv(nn.Module):
     
 if __name__ == '__main__':
     y = torch.rand(2,768)
-    label = torch.randint(0,11,(2,))
+    label = torch.randint(0,1024,(2,))
     x = torch.rand(2,3,256,256)
     model = criticNet()
     out = model([x,label,y])

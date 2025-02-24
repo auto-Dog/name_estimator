@@ -17,7 +17,10 @@ import argparse
 import colour
 
 parser = argparse.ArgumentParser(description='COLOR-ENHANCEMENT')
-parser.add_argument('--dataset', type=str, default='/work/mingjundu/imagenet100k/')
+parser.add_argument('--dataset', type=str, default='/data/mingjundu/imagenet100k/')
+parser.add_argument('--patch',type=int, default=8)
+parser.add_argument('--size',type=int, default=256)
+parser.add_argument("--cvd", type=str, default='deutan')
 args = parser.parse_args()
 
 df = pd.read_excel('../name_table.xlsx',index_col='Colorname')  # 替换为您的文件路径
@@ -79,7 +82,7 @@ def classify_color(rgb):
     return category_map[color_name[index]]
 
 class CVDImageNet(ImageFolder):
-    def __init__(self, root: str, split: str = "train", patch_size=16, img_size=512, cvd='deutan',**kwargs: Any) -> None:
+    def __init__(self, root: str, split: str = "train", patch_size=16, img_size=512,**kwargs: Any) -> None:
         target_path = os.path.join(root,split)
         super().__init__(target_path, **kwargs)
         self.image_size = img_size
@@ -104,8 +107,9 @@ class CVDImageNet(ImageFolder):
         img = self.my_transform(sample)
         return img, path
 
-trainset = CVDImageNet(dataset_path,split='imagenet_subtrain',patch_size=16,img_size=32,cvd='deutan')
-valset = CVDImageNet(dataset_path,split='imagenet_subval',patch_size=16,img_size=32,cvd='deutan')
+img_size = args.size//args.patch
+trainset = CVDImageNet(dataset_path,split='imagenet_subtrain',patch_size=args.patch,img_size=img_size)
+valset = CVDImageNet(dataset_path,split='imagenet_subval',patch_size=args.patch,img_size=img_size)
 trainloader = torch.utils.data.DataLoader(trainset,batch_size=1,shuffle = True,num_workers=8)
 valloader = torch.utils.data.DataLoader(valset,batch_size=1,shuffle = True,num_workers=8)
 
@@ -115,15 +119,15 @@ def make_data_label(loader,filename):
     for img,path in tqdm(loader):
         for i in range(50):  # 每张图采样十个颜色点，实际可能不会全部采纳
             color_names = np.array([-1,-1,-1, -1,-1,-1, -1,-1,-1])
-            x_index = np.random.randint(1,30)
-            y_index = np.random.randint(1,30)
+            x_index = np.random.randint(1,img_size-1)
+            y_index = np.random.randint(1,img_size-1)
             surroundings = img[0, :, x_index-1:x_index+2, y_index-1:y_index+2].reshape(3,-1)
             for j in range(9):
                 color_names[j] = classify_color(surroundings[:,j].flatten().numpy()*255)
             target = color_names[4]
-            target_patch_id = x_index*32+y_index
+            target_patch_id = x_index*img_size+y_index
             mask = (color_names==target)
-            if np.sum(mask)>=5: # voting,至少有5/9个像素支持当前颜色
+            if np.sum(mask)>=4: # voting,至少有4/9个像素支持当前颜色
                 X_train.append((path[0],target_patch_id))
                 Y_train.append(target)
         # if len(Y_train)>1000:   # debug
