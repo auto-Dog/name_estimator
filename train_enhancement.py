@@ -95,21 +95,17 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
     y1 = classifier(x1)
     y1_all = topk_sample(x,patch_id,y1,labels)
     real_validity = critic(y1_all)
-    real_validity = real_validity.mean(0).view(1)
-    real_validity.backward(mone)
     # critic_loss = torch.mean(real_validity)
     # critic_loss.backward()
 
     xe = enhancement(x)
     x2 = cvd_process(xe)
     y2 = classifier(x2)
-    y2_all = sample(x,patch_id,y2,labels)  
+    y2_all = sample(xe,patch_id,y2,labels)  # 0225 update: use xe rather that x
     # train critic function
     fake_validity = critic(y2_all)
-    fake_validity = fake_validity.mean(0).view(1)
-    fake_validity.backward(one) # use eqn in original paper, sym. to code of author but acceptable, see issue 9 in WGAN
-    critic_loss = torch.mean(real_validity)-torch.mean(fake_validity)   # It is recommanded to plot -errD
-    # critic_loss.backward()
+    critic_loss = -torch.mean(real_validity)+torch.mean(fake_validity)
+    critic_loss.backward()
 
     num_accumlate = max(1,128//args.batchsize)
     if iter_num % num_accumlate == 0:
@@ -121,9 +117,9 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
         xe = enhancement(x)
         x2 = cvd_process(xe)
         y2 = classifier(x2)
-        y2_all = sample(x,patch_id,y2,labels,k=args.batchsize) 
+        y2_all = sample(xe,patch_id,y2,labels,k=args.batchsize) # 0225 update: use xe rather that x
         fake_validity = critic(y2_all)
-        enhancement_loss = -5*torch.mean(fake_validity) + criterion_L1(xe,x)
+        enhancement_loss = -torch.mean(fake_validity) + criterion_L1(xe,x)
         enhancement_loss.backward()
         enhancement_optimizer.step()
     return y2,critic_loss
