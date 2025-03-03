@@ -119,7 +119,8 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
         y2 = classifier(x2)
         y2_all = sample(xe,patch_id,y2,labels,k=args.batchsize) # 0225 update: use xe rather that x
         fake_validity = critic(y2_all)
-        enhancement_loss = -torch.mean(fake_validity) + criterion_L1(xe,x)
+        # enhancement_loss = -torch.mean(fake_validity) + criterion_L1(xe,x)
+        enhancement_loss = -torch.mean(fake_validity) + criterion_L1(xe,x) + criterion(y2_all[2],labels)    # 0303 update: add infoNCE loss
         enhancement_loss.backward()
         enhancement_optimizer.step()
     return y2,critic_loss
