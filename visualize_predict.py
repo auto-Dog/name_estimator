@@ -11,7 +11,7 @@ from utils.cvdObserver import cvdSimulateNet
 prefix = 'vit_cn6a'
 pic_name = "apple.png"
 pth_location = './Models/model_'+prefix+'.pth'
-pth_optim_location = './Models/model_vit_cn6a_optim_0226.pth'
+pth_optim_location = './Models/model_vit_cn6a_optim_0305.pth'
 image_size = 240
 patch_size = 10
 model = ViT('ColorViT', pretrained=False,image_size=image_size,patches=patch_size,num_layers=6,num_heads=6,num_classes=1000)

@@ -47,6 +47,7 @@ parser.add_argument('--batchsize',type=int,default=8)
 parser.add_argument('--test',type=bool,default=False)
 parser.add_argument('--epoch', type=int, default=50)
 parser.add_argument('--dataset', type=str, default='/data/mingjundu/imagenet100k/')
+parser.add_argument('--test_split', type=str, default='imagenet_subval')
 parser.add_argument("--cvd", type=str, default='deutan')
 parser.add_argument("--tau", type=float, default=0.3)
 parser.add_argument("--x_bins", type=float, default=128.0)  # noise setting, to make input continues-like
@@ -294,12 +295,12 @@ testing = validate
 best_score = 0
 
 if args.test == True:
-    finaltestset =  CVDImageNetRand(args.dataset,split='imagenet_subval',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
+    finaltestset =  CVDImageNetRand(args.dataset,split=args.test_split,patch_size=args.patch,img_size=args.size,cvd=args.cvd)
     finaltestloader = torch.utils.data.DataLoader(finaltestset,batch_size=args.batchsize,shuffle = True,num_workers=4)
     model.load_state_dict(torch.load(pth_location, map_location='cpu'))
     # filtermodel.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
     # sample_enhancement(model,None,-1,args)  # test optimization
-    testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)    # test performance on dataset
+    testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)    # test performance on dataset
 else:
     if args.from_check_point != '':
         model.load_state_dict(torch.load(ckp_location))
