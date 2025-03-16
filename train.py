@@ -298,9 +298,9 @@ if args.test == True:
     finaltestset =  CVDImageNetRand(args.dataset,split=args.test_split,patch_size=args.patch,img_size=args.size,cvd=args.cvd)
     finaltestloader = torch.utils.data.DataLoader(finaltestset,batch_size=args.batchsize,shuffle = True,num_workers=4)
     model.load_state_dict(torch.load(pth_location, map_location='cpu'))
-    # filtermodel.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
+    filtermodel.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
     # sample_enhancement(model,None,-1,args)  # test optimization
-    testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)    # test performance on dataset
+    testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)    # test performance on dataset
 else:
     if args.from_check_point != '':
         model.load_state_dict(torch.load(ckp_location))
