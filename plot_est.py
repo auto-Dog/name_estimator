@@ -141,11 +141,11 @@ def validate(testloader, model, criterion, optimizer, lrsch, logger, args, phase
             label_list.extend(label.cpu().detach().tolist())
             pred_list.extend(pred.cpu().detach().tolist())
     
-    patch_rgb_list = np.array(patch_rgb_list)
-    print(patch_rgb_list.shape)  # debug
-    print(len(pred_list))       # debug
+    patch_rgb_array = np.array(patch_rgb_list)
+    pred_array = np.array(pred_list).flatten()
+    label_array = np.array(label_list).flatten()
     # save results
-    df = pd.DataFrame({'R':patch_rgb_list[:,0],'G':patch_rgb_list[:,1],'B':patch_rgb_list[:,2],'Pred':pred_list,'GT':label_list,})
+    df = pd.DataFrame({'R':patch_rgb_array[:,0],'G':patch_rgb_array[:,1],'B':patch_rgb_array[:,2],'Pred':pred_array,'GT':label_array,})
     df.to_csv('pred_log.csv')
     loss_logger /= len(testloader)
     if phase == 'eval':
