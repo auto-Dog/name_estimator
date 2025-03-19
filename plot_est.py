@@ -142,6 +142,8 @@ def validate(testloader, model, criterion, optimizer, lrsch, logger, args, phase
             pred_list.extend(pred.cpu().detach().tolist())
     
     patch_rgb = np.array(patch_rgb)
+    print(patch_rgb.shape)
+    print(len(pred_list))
     # save results
     df = pd.DataFrame({'Pred':pred_list,'GT':label_list,'R':patch_rgb[:,0],'G':patch_rgb[:,1],'B':patch_rgb[:,2]})
     df.to_csv('pred_log.csv')
