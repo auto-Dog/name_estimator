@@ -7,6 +7,51 @@ import torch.nn as nn
 from PIL import Image
 import torchvision.transforms as transforms
 import cv2
+import argparse
+import random
+from sklearn.metrics import classification_report, roc_auc_score, roc_curve, accuracy_score
+def setup_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+setup_seed(1896)
+from dataloaders.CVDDS import CVDImageNetRand
+# argparse here
+parser = argparse.ArgumentParser(description='COLOR-ENHANCEMENT')
+parser.add_argument('--lr',type=float, default=1e-4)
+parser.add_argument('--patch',type=int, default=8)
+parser.add_argument('--size',type=int, default=256)
+parser.add_argument('--t', type=float, default=0.5)
+parser.add_argument('--save_interval', type=int, default=5)
+parser.add_argument('--test_fold','-f',type=int)
+parser.add_argument('--batchsize',type=int,default=8)
+parser.add_argument('--test',type=bool,default=False)
+parser.add_argument('--epoch', type=int, default=50)
+parser.add_argument('--dataset', type=str, default='/data/mingjundu/imagenet100k/')
+parser.add_argument('--test_split', type=str, default='imagenet_subval')
+parser.add_argument("--cvd", type=str, default='deutan')
+parser.add_argument("--tau", type=float, default=0.3)
+parser.add_argument("--x_bins", type=float, default=128.0)  # noise setting, to make input continues-like
+parser.add_argument("--y_bins", type=float, default=128.0)
+parser.add_argument("--prefix", type=str, default='vit_cn5')
+parser.add_argument('--from_check_point',type=str,default='')
+args = parser.parse_args()
+
+print(args) # show all parameters
+### write model configs here
+save_root = './run'
+pth_location = './Models/model_'+args.prefix+'.pth'
+pth_optim_location = './Models/model_'+args.prefix+'_optim_base'+'.pth'
+ckp_location = './Models/'+args.from_check_point
+
+
+def setup_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
 
 def RGB_to_sRGB(RGB):
     '''RGB to sRGB, value 0.0-1.0(NOT 0-255)'''
@@ -125,6 +170,7 @@ def _contrast(X:torch.Tensor, Y:torch.Tensor, win:torch.Tensor=None):
     return dis.mean()
 
 def LCD_metric(X, Y, size_average=True):
+    ''' Calculate the LCD metric on batched images, enhanced image and CVD sim. on enhanced image '''
     X = sRGB_to_Lab(((X + 1) / 2.0).clamp(0, 1))
     Y = sRGB_to_Lab(((Y + 1) / 2.0).clamp(0, 1))
     if not X.shape == Y.shape:
@@ -147,6 +193,7 @@ def LCD_metric(X, Y, size_average=True):
         return cpr.mean(1)
 
 def CD_metric(X,Y):
+    ''' Calculate the CD metric on batched images, enhanced image and original image '''
     X = sRGB_to_Lab(((X + 1) / 2.0).clamp(0, 1))
     Y = sRGB_to_Lab(((Y + 1) / 2.0).clamp(0, 1))
     X[:,0,:,:] *= 0 # L通道置零
@@ -169,6 +216,56 @@ def CD_metric(X,Y):
 #     cls_index,_ = criterion.classification(outs,('Red',)*1024)  # the later parameter is used for fill blank, no meaning
 #     return cls_index
 
+def testing(testloader, model, criterion, optimizer, lrsch, logger, args, phase='eval', optim_model=None):
+    model.eval()
+    optim_model.eval()
+    loss_logger = 0.
+    label_list = []
+    pred_list  = []
+    for img, ci_patch, img_ori, _,patch_color_name, patch_id in tqdm(testloader,ascii=True,ncols=60):
+        if phase == 'eval':
+            with torch.no_grad():
+                outs = model(img.cuda()) 
+        elif phase == 'optim':
+            with torch.no_grad():
+                img_ori = img_ori.cuda()
+                img_t = optim_model(img_ori)
+                img = cvd_process(img_t)
+                outs = model(img.cuda()) 
+        # ci_rgb = ci_rgb.cuda()
+        # img_target = img_target.cuda()
+        # print("label:",label)
+        batch_index = torch.arange(len(outs),dtype=torch.long)   # 配合第二维度索引使用
+        outs = outs[batch_index,patch_id] # 取出目标位置的颜色embedding
+        loss_batch = criterion(outs,patch_color_name)
+        loss_logger += loss_batch.item()    # 显示全部loss
+        pred,label = criterion.classification(outs,patch_color_name)
+        label_list.extend(label.cpu().detach().tolist())
+        pred_list.extend(pred.cpu().detach().tolist())
+    loss_logger /= len(testloader)
+    if phase == 'eval':
+        print("Val loss:",loss_logger)
+        acc = log_metric('Val', logger,loss_logger,label_list,pred_list)
+        return acc, model.state_dict()
+    elif phase == 'optim':
+        print("Val Optim loss:",loss_logger)
+        acc = log_metric('Val Optim', logger,loss_logger,label_list,pred_list)
+        return acc, optim_model.state_dict()
+def log_metric(prefix, logger, loss, target, pred):
+    cls_report = classification_report(target, pred, output_dict=True, zero_division=0)
+    acc = accuracy_score(target, pred)
+    print(cls_report)   # all class information
+    # auc = roc_auc_score(target, prob)
+    logger.log_scalar(prefix+'/loss',loss,print=False)
+    # logger.log_scalar(prefix+'/AUC',auc,print=True)
+    logger.log_scalar(prefix+'/'+'Acc', acc, print= True)
+    logger.log_scalar(prefix+'/'+'Pos_precision', cls_report['weighted avg']['precision'], print=False)
+    # logger.log_scalar(prefix+'/'+'Neg_precision', cls_report['0']['precision'], print= True)
+    logger.log_scalar(prefix+'/'+'Pos_recall', cls_report['weighted avg']['recall'], print=False)
+    # logger.log_scalar(prefix+'/'+'Neg_recall', cls_report['0']['recall'], print= True)
+    logger.log_scalar(prefix+'/'+'Pos_F1', cls_report['weighted avg']['f1-score'], print=False)
+    logger.log_scalar(prefix+'/loss',loss,print=False)
+    return acc   # 越大越好
 if __name__ == '__main__':
     from other_methods import AndriodDaltonizer
     from colour.blindness import matrix_cvd_Machado2009
@@ -179,6 +276,13 @@ if __name__ == '__main__':
         transforms.ToTensor(),
     ]
     )
+    if args.test == True:
+        finaltestset =  CVDImageNetRand(args.dataset,split=args.test_split,patch_size=args.patch,img_size=args.size,cvd=args.cvd)
+        finaltestloader = torch.utils.data.DataLoader(finaltestset,batch_size=args.batchsize,shuffle = True,num_workers=4)
+        model.load_state_dict(torch.load(pth_location, map_location='cpu'))
+        filtermodel.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
+        # sample_enhancement(model,None,-1,args)  # test optimization
+        testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)    # test performance on dataset
     img = Image.open('apple.png').convert('RGB')
     img = np.array(img)/255.
     basic_enhance = AndriodDaltonizer('Deuteranomaly')

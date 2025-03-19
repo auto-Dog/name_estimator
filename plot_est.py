@@ -13,8 +13,15 @@ from torchvision.datasets import CIFAR10
 from sklearn.metrics import classification_report, roc_auc_score, roc_curve, accuracy_score
 import matplotlib.pyplot as plt
 from PIL import Image
+import pandas as pd
 # from sklearn.model_selection import StratifiedGroupKFold
-
+import random
+def setup_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+setup_seed(1896)
 from utils.logger import Logger
 from tqdm import tqdm
 from dataloaders.CVDDS import CVDcifar,CVDImageNet,CVDPlace,CVDImageNetRand
@@ -69,26 +76,7 @@ train_val_percent = 0.8
 # os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
 # skf = StratifiedGroupKFold(n_splits=n_splits)
 
-# trainset = CVDcifar('./',train=True,download=True,patch_size=args.patch,img_size=args.size,cvd=args.cvd)
-# testset = CVDcifar('./',train=False,download=True,patch_size=args.patch,img_size=args.size,cvd=args.cvd)
-trainset = CVDImageNet(args.dataset,split='imagenet_subtrain',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
-valset = CVDImageNet(args.dataset,split='imagenet_subval',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
 cvd_process = cvdSimulateNet(cvd_type=args.cvd,cuda=True,batched_input=True) # cvd模拟器
-# trainset = CVDPlace('/work/mingjundu/place_dataset/places365_standard/',split='train',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
-# valset = CVDPlace('/work/mingjundu/place_dataset/places365_standard/',split='val',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
-# inferenceset = CIFAR10('./',train=False,download=True,transform=transforms.Compose([transforms.ToTensor(),]))
-
-# train_size = int(len(trainset) * train_val_percent)   # not suitable for ImageNet subset
-# val_size = len(trainset) - train_size
-# trainset, valset = torch.utils.data.random_split(trainset, [train_size, val_size])
-print(f'Dataset Information: Training Samples:{len(trainset)}, Validating Samples:{len(valset)}')
-
-trainloader = torch.utils.data.DataLoader(trainset,batch_size=args.batchsize,shuffle = True,num_workers=8)
-valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize,shuffle = True,num_workers=8)
-# testloader = torch.utils.data.DataLoader(testset,batch_size=args.batchsize,shuffle = False)
-# inferenceloader = torch.utils.data.DataLoader(inferenceset,batch_size=args.batchsize,shuffle = False,)
-# trainval_loader = {'train' : trainloader, 'valid' : validloader}
-
 model = ViT('ColorViT', pretrained=False,image_size=args.size,patches=args.patch,num_layers=6,num_heads=6,num_classes = 1000)
 model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
 model = model.cuda()
@@ -119,108 +107,44 @@ def add_input_noise(input:torch.Tensor,channel_max=(0.6,0.6,0.025),bins=256):
     return out
 
 import time
-def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='train', optim_model=None):
-    if phase=='train':
-        model.train()
-        logger.update_step()
-        loss_logger = 0.
-        label_list = []
-        pred_list  = []
-        for img, ci_patch, img_ori, _,patch_color_name, patch_id  in tqdm(trainloader,ascii=True,ncols=60):
-            optimizer.zero_grad()
-            img = img.cuda()
-            ci_patch = ci_patch.cuda()
-            # st_time = time.time()   # debug
-            # print('Timer now')  # debug
 
-            outs = model(add_input_noise(img,bins=args.x_bins))
-            batch_index = torch.arange(len(outs),dtype=torch.long)   # 配合第二维度索引使用
-            outs = outs[batch_index,patch_id] # 取出目标位置的颜色embedding
-            # print('Model use:',time.time()-st_time) # debug
-            loss_batch = criterion(outs,patch_color_name)
-            # print('Loss Func. use:',time.time()-st_time)    # debug
-            pred,label = criterion.classification(outs,patch_color_name)
-            # print('Classification use:',time.time()-st_time)    # debug
-            label_list.extend(label.cpu().detach().tolist())
-            pred_list.extend(pred.cpu().detach().tolist())
-            # img_target = img_target.cuda()
-            # print("opt tensor:",out)
-            # ci_rgb = ci_rgb.cuda()
-
-            # if epoch>30:
-            #     # 冻结部分层
-            #     for name, param in model.named_parameters():
-            #         if ("transformer" in name):
-            #             param.requires_grad = False
-            # loss_batch = criterion(outs,img_target)
-            loss_batch.backward()
-            loss_logger += loss_batch.item()    # 显示全部loss
-            optimizer.step()
-        lrsch.step()
-
-        loss_logger /= len(trainloader)
-        print("Train loss:",loss_logger)
-        log_metric('Train',logger,loss_logger,label_list,pred_list)
-        if not (logger.global_step % args.save_interval):
-            logger.save(model,optimizer, lrsch, criterion)
-    
-    if phase=='optim':
-        model.eval()
-        optim_model.train()
-        loss_logger = 0.
-        label_list = []
-        pred_list  = []
-        for img, ci_patch, img_ori, _,patch_color_name, patch_id  in tqdm(trainloader,ascii=True,ncols=60):
-            optimizer.zero_grad()
-            img = img.cuda()
-            img_ori = img_ori.cuda()
-            img_t = optim_model(img_ori)
-            img = cvd_process(img_t)
-            outs = model(img)
-            batch_index = torch.arange(len(outs),dtype=torch.long)   # 配合第二维度索引使用
-            outs = outs[batch_index,patch_id] # 取出目标位置的颜色embedding
-            # print('Model use:',time.time()-st_time) # debug
-            loss_batch = 5*criterion(outs,patch_color_name)+criterion2(img_t,img_ori)
-            # print('Loss Func. use:',time.time()-st_time)    # debug
-            pred,label = criterion.classification(outs,patch_color_name)
-            # print('Classification use:',time.time()-st_time)    # debug
-            label_list.extend(label.cpu().detach().tolist())
-            pred_list.extend(pred.cpu().detach().tolist())
-            loss_batch.backward()
-            loss_logger += loss_batch.item()    # 显示全部loss
-            optimizer.step()
-        # lrsch.step()
-
-        loss_logger /= len(trainloader)
-        print("Train Optim loss:",loss_logger)
-        log_metric('Train Optim',logger,loss_logger,label_list,pred_list)
-
-def validate(testloader, model, criterion, optimizer, lrsch, logger, args, phase='eval', optim_model=None):
+def validate(testloader, model, criterion, optimizer, lrsch, logger, args, phase='eval', optim_model=None, sample_turns=1):
     model.eval()
     optim_model.eval()
     loss_logger = 0.
     label_list = []
     pred_list  = []
-    for img, ci_patch, img_ori, patch_ori, patch_color_name, patch_id in tqdm(testloader,ascii=True,ncols=60):
-        if phase == 'eval':
-            with torch.no_grad():
-                outs = model(img.cuda()) 
-        elif phase == 'optim':
-            with torch.no_grad():
-                img_ori = img_ori.cuda()
-                img_t = optim_model(img_ori)
-                img = cvd_process(img_t)
-                outs = model(img.cuda()) 
-        # ci_rgb = ci_rgb.cuda()
-        # img_target = img_target.cuda()
-        # print("label:",label)
-        batch_index = torch.arange(len(outs),dtype=torch.long)   # 配合第二维度索引使用
-        outs = outs[batch_index,patch_id] # 取出目标位置的颜色embedding
-        loss_batch = criterion(outs,patch_color_name)
-        loss_logger += loss_batch.item()    # 显示全部loss
-        pred,label = criterion.classification(outs,patch_color_name)
-        label_list.extend(label.cpu().detach().tolist())
-        pred_list.extend(pred.cpu().detach().tolist())
+    patch_rgb_list = []
+    for i in range(sample_turns):
+        for img, ci_patch, img_ori, patch_ori, patch_color_name, patch_id in tqdm(testloader,ascii=True,ncols=60):
+            if phase == 'eval':
+                with torch.no_grad():
+                    outs = model(img.cuda()) 
+            elif phase == 'optim':
+                with torch.no_grad():
+                    img_ori = img_ori.cuda()
+                    img_t = optim_model(img_ori)
+                    img = cvd_process(img_t)
+                    outs = model(img.cuda()) 
+            patch_ori:torch.Tensor
+            patch_rgb = patch_ori.mean(dim=(2,3)).cpu().detach().tolist()   # B,3
+            patch_rgb_list.extend(patch_rgb)
+            # ci_rgb = ci_rgb.cuda()
+            # img_target = img_target.cuda()
+            # print("label:",label)
+            batch_index = torch.arange(len(outs),dtype=torch.long)   # 配合第二维度索引使用
+            outs = outs[batch_index,patch_id] # 取出目标位置的颜色embedding
+            loss_batch = criterion(outs,patch_color_name)
+            loss_logger += loss_batch.item()    # 显示全部loss
+            pred,label = criterion.classification(outs,patch_color_name)
+            # used for plotting
+            label_list.extend(label.cpu().detach().tolist())
+            pred_list.extend(pred.cpu().detach().tolist())
+    
+    patch_rgb = np.array(patch_rgb)
+    # save results
+    df = pd.DataFrame({'Pred':pred_list,'GT':label_list,'R':patch_rgb[:,0],'G':patch_rgb[:,1],'B':patch_rgb[:,2]})
+    df.to_csv('pred_log.csv')
     loss_logger /= len(testloader)
     if phase == 'eval':
         print("Val loss:",loss_logger)
@@ -300,31 +224,5 @@ if args.test == True:
     model.load_state_dict(torch.load(pth_location, map_location='cpu'))
     filtermodel.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
     # sample_enhancement(model,None,-1,args)  # test optimization
-    testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)    # test performance on dataset
-else:
-    if args.from_check_point != '':
-        model.load_state_dict(torch.load(ckp_location))
-    for i in range(args.epoch):
-        print("===========Epoch:{}==============".format(i))
-        # if i==0:
-        #     sample_enhancement(model,None,i,args) # debug
-        # train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',filtermodel)
-        # score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)
-        # if score > best_score:
-        #     best_score = score
-        #     torch.save(model_save, pth_location)
-
-        # if (i+1)%5 == 0:
-        #     train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
-        #     score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
-        #     sample_enhancement(model,None,i,args)
-        #     if score_optim > score:
-        #         torch.save(model_optim_save, pth_optim_location)
-
-        train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
-        score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
-        sample_enhancement(model,None,i,args)
-        if score_optim > best_score:
-            best_score = score_optim
-            torch.save(model_optim_save, pth_optim_location)
+    testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)    # test performance on dataset
 
