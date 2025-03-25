@@ -2,7 +2,7 @@ __version__ = "0.0.7"
 
 from .model import ViT
 from .colorLoss import colorLoss
-from .ssim import ssim
+from .ssim import SSIMLoss
 from .colorFilter import colorFilter
 from .unet_tiny import TinyUNet
 from .critic import criticNet

@@ -18,7 +18,7 @@ from PIL import Image
 from utils.logger import Logger
 from tqdm import tqdm
 from dataloaders.CVDDS import CVDcifar,CVDImageNet,CVDPlace,CVDImageNetRand
-from network import ViT,colorLoss, colorFilter,criticNet,ssim
+from network import ViT,colorLoss, colorFilter,criticNet,SSIMLoss
 from utils.cvdObserver import cvdSimulateNet
 from utils.conditionP import conditionP
 from utils.utility import patch_split,patch_compose
@@ -76,7 +76,7 @@ model_enhance = model_enhance.cuda()
 
 criterion = colorLoss(args.tau)
 criterion_L1 = nn.L1Loss()
-criterion_ssim = ssim()
+criterion_ssim = SSIMLoss()
 # optimizer_critic = torch.optim.RMSprop(model_critic.parameters(), lr=args.lr, weight_decay=5e-5)    # update WGAN-CP optimizer, same as original paper
 # optimizer_enhance = torch.optim.RMSprop(model_enhance.parameters(), lr=args.lr, weight_decay=5e-5)
 
@@ -159,7 +159,7 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
     fake_validity = critic(y2_all)
 
     # WGAN GP algorithm  
-    gradient_penalty = calculate_gradient_penalty(y1_all, y2_all)
+    gradient_penalty = calculate_gradient_penalty(y1_all, y2_all, critic)
     # train critic function
     set_requires_grad(critic,True)
     set_requires_grad(enhancement,False)
