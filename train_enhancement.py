@@ -18,10 +18,12 @@ from PIL import Image
 from utils.logger import Logger
 from tqdm import tqdm
 from dataloaders.CVDDS import CVDcifar,CVDImageNet,CVDPlace,CVDImageNetRand
-from network import ViT,colorLoss, colorFilter,criticNet
+from network import ViT,colorLoss, colorFilter,criticNet,ssim
 from utils.cvdObserver import cvdSimulateNet
 from utils.conditionP import conditionP
 from utils.utility import patch_split,patch_compose
+from torch.autograd import Variable
+from torch import autograd
 
 # argparse here
 parser = argparse.ArgumentParser(description='COLOR-ENHANCEMENT')
@@ -74,10 +76,59 @@ model_enhance = model_enhance.cuda()
 
 criterion = colorLoss(args.tau)
 criterion_L1 = nn.L1Loss()
-optimizer_critic = torch.optim.RMSprop(model_critic.parameters(), lr=args.lr, weight_decay=5e-5)    # update optimizer, same as original paper
-optimizer_enhance = torch.optim.RMSprop(model_enhance.parameters(), lr=args.lr, weight_decay=5e-5)
+criterion_ssim = ssim()
+# optimizer_critic = torch.optim.RMSprop(model_critic.parameters(), lr=args.lr, weight_decay=5e-5)    # update WGAN-CP optimizer, same as original paper
+# optimizer_enhance = torch.optim.RMSprop(model_enhance.parameters(), lr=args.lr, weight_decay=5e-5)
+
+optimizer_critic = torch.optim.Adam(model_critic.parameters(), lr=args.lr, betas=(0.5,0.999))    # update WGAN-GP optimizer, same as original paper
+optimizer_enhance = torch.optim.Adam(model_enhance.parameters(), lr=args.lr, betas=(0.5,0.999))
+
 lr_lambda = lambda epoch: min(1.0, (epoch + 1)/5.)  # noqa
 lrsch = torch.optim.lr_scheduler.LambdaLR(optimizer_enhance, lr_lambda=lr_lambda)
+
+def calculate_gradient_penalty(real_tuple, fake_tuple, critic):
+    """
+    Calculate the gradient penalty for WGAN-GP.
+    Inputs are two tuples of tensors (real and fake), each containing three tensors.
+    """
+    # Unpack the tuples
+    real_images, real_labels, real_embeddings = real_tuple
+    fake_images, fake_labels, fake_embeddings, = fake_tuple
+
+    # Generate random factors for interpolation
+    eta = torch.FloatTensor(real_images.size(0), 1, 1, 1).uniform_(0, 1).cuda()
+
+    # Interpolate between real and fake for all three components
+    interpolated_images = eta * real_images + (1 - eta) * fake_images
+    interpolated_embeddings = eta * real_embeddings + (1 - eta) * fake_embeddings
+    interpolated_labels = eta * real_labels + (1 - eta) * fake_labels
+
+    # Ensure gradients can be computed
+    interpolated_images = Variable(interpolated_images, requires_grad=True)
+    interpolated_embeddings = Variable(interpolated_embeddings, requires_grad=True)
+    interpolated_labels = Variable(interpolated_labels, requires_grad=True)
+
+    # Calculate critic output for interpolated inputs
+    prob_interpolated = critic((interpolated_images, interpolated_labels, interpolated_embeddings))
+
+    # Compute gradients of critic output with respect to interpolated inputs
+    gradients = autograd.grad(
+        outputs=prob_interpolated,
+        inputs=[interpolated_images, interpolated_embeddings, interpolated_labels],
+        grad_outputs=torch.ones(prob_interpolated.size()).cuda(),
+        create_graph=True,
+        retain_graph=True,
+    )
+
+    # Flatten and combine gradients for all components
+    gradients_images = gradients[0].view(gradients[0].size(0), -1)
+    gradients_embeddings = gradients[1].view(gradients[1].size(0), -1)
+    gradients_labels = gradients[2].view(gradients[2].size(0), -1)
+    combined_gradients = torch.cat([gradients_images, gradients_embeddings, gradients_labels], dim=1)
+
+    # Compute gradient penalty
+    grad_penalty = ((combined_gradients.norm(2, dim=1) - 1) ** 2).mean() * 10  # lambda_term = 10
+    return grad_penalty
 
 def wgan_train(x:torch.Tensor,patch_id,labels,
                classifier,enhancement,enhancement_optimizer,
@@ -88,8 +139,10 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
 
     # random_seed = torch.rand(x.shape[0],1).cuda()
     # limit the gradient, clamp parameters to a cube
-    for p in critic.parameters():
-        p.data.clamp_(-0.01,0.01)
+
+    # WGAN-clip algorithm
+    # for p in critic.parameters():
+    #     p.data.clamp_(-0.01,0.01)
 
     x1 = cvd_process(x)
     y1 = classifier(x1)
@@ -102,9 +155,15 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
     x2 = cvd_process(xe)
     y2 = classifier(x2)
     y2_all = sample(xe,patch_id,y2,labels)  # 0225 update: use xe rather that x
-    # train critic function
+    
     fake_validity = critic(y2_all)
-    critic_loss = -torch.mean(real_validity)+torch.mean(fake_validity)
+
+    # WGAN GP algorithm  
+    gradient_penalty = calculate_gradient_penalty(y1_all, y2_all)
+    # train critic function
+    set_requires_grad(critic,True)
+    set_requires_grad(enhancement,False)
+    critic_loss = -torch.mean(real_validity)+torch.mean(fake_validity)+gradient_penalty
     critic_loss.backward()
 
     num_accumlate = max(1,128//args.batchsize)
@@ -112,7 +171,10 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
         critic_optimizer.step()
         critic_optimizer.zero_grad()
     # train enhancement model, equals to generator
+    iter_lambda = max(iter_num-10000,0) # control ssim
     if iter_num % args.n_critic == 0:
+        set_requires_grad(critic,False)
+        set_requires_grad(enhancement,True)
         enhancement_optimizer.zero_grad()
         xe = enhancement(x)
         x2 = cvd_process(xe)
@@ -120,7 +182,7 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
         y2_all = sample(xe,patch_id,y2,labels,k=args.batchsize) # 0225 update: use xe rather that x
         fake_validity = critic(y2_all)
         # enhancement_loss = -torch.mean(fake_validity) + criterion_L1(xe,x)
-        enhancement_loss = -torch.mean(fake_validity) + criterion_L1(xe,x) + criterion(y2_all[2],labels)    # 0303 update: add infoNCE loss
+        enhancement_loss = -torch.mean(fake_validity) + iter_lambda*criterion_ssim(xe,x)    #criterion_L1(xe,x) + criterion(y2_all[2],labels)    # 0303 update: add infoNCE loss
         enhancement_loss.backward()
         enhancement_optimizer.step()
     return y2,critic_loss
@@ -161,6 +223,19 @@ def topk_sample(img,patch_id,embedding_patch,gts,top_k=11):
 
     out_indices = torch.tensor(out_indices, device=img.device)   # original indices for a given sorted index
     return img[out_indices,...],patch_id[out_indices,...],embedding_patch[out_indices,...]
+
+def set_requires_grad(nets, requires_grad=False):
+    """Set requies_grad=Fasle for all the networks to avoid unnecessary computations
+    Parameters:
+        nets (network list)   -- a list of networks
+        requires_grad (bool)  -- whether the networks require gradients or not
+    """
+    if not isinstance(nets, list):
+        nets = [nets]
+    for net in nets:
+        if net is not None:
+            for param in net.parameters():
+                param.requires_grad = requires_grad
 
 def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='train'):
     logger.update_step()

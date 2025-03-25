@@ -8,32 +8,41 @@ import torch.nn.functional as F
 class criticNet(nn.Module):
     def __init__(self,input_size=256):
         super().__init__()
-        self.conditionneck = nn.Sequential(
-            DoubleConv(3,64),
-            nn.MaxPool2d(2),
-            DoubleConv(64,512),
-            nn.AdaptiveAvgPool2d((32,32)),
+        self.downsample = nn.AdaptiveMaxPool2d(32)
+        self.img_cnn = nn.Sequential(
+            DoubleConv(3,256),
+            DoubleConv(256,1024),
+            # nn.AdaptiveAvgPool2d((32,32)),
         )
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.pooling = nn.MaxPool2d(2)
+        self.ci_mlp = nn.Sequential(
+            nn.Linear(3,256),
+            nn.ReLU(),
+            nn.Linear(256,512),
+        )
         self.fc = nn.Sequential(
-            nn.Linear(512+768,1024),
+            nn.Linear(1024+768+512,1024),
             nn.ReLU(),
             nn.Linear(1024,1)
         )
 
     def forward(self,input_y):
-        img,ids,embedding = input_y[0],input_y[1],input_y[2]
         # img, id, embedding at id
-        x = self.conditionneck(img)   # B,C,32,32
+        img,ids,embedding = input_y[0],input_y[1],input_y[2]
+        img = self.downsample(img)
         # extract original value
         ori_shape = ids.shape
         batch_index = torch.arange(ori_shape[0],dtype=torch.long)   # 配合第二维度索引使用
-        x[batch_index,:,ids//32,ids%32] *= 100   # B,3,1,1
-        x = self.avgpool(x).squeeze(-1).squeeze(-1)
-        y = embedding.reshape(-1,768)
-        yx = torch.cat([x,y],dim=1)
-        out = self.fc(yx)
+        ci = img[batch_index,:,ids//32,ids%32]
+        ci = self.ci_mlp(ci.squeeze(-1).squeeze(-1))
+
+        img = self.img_cnn(img)   # B,C,8,8
+        # x[batch_index,:,ids//32,ids%32] *= 100   # B,3,1,1
+        img = self.avgpool(img).squeeze(-1).squeeze(-1)
+        w = embedding.reshape(-1,768)
+        allf = torch.cat([img,w,ci],dim=1)
+        out = self.fc(allf)
         return out
 
 class DoubleConv(nn.Module):
@@ -44,21 +53,21 @@ class DoubleConv(nn.Module):
         if not mid_channels:
             mid_channels = out_channels
         self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(mid_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
+            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
+            nn.InstanceNorm2d(mid_channels, affine=True),   # for WGAN-GP
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, stride=2),
+            nn.InstanceNorm2d(out_channels, affine=True),
+            nn.LeakyReLU(0.2, inplace=True),
         )
 
     def forward(self, x):
         return self.double_conv(x)
     
 if __name__ == '__main__':
-    y = torch.rand(2,768)
-    label = torch.randint(0,1024,(2,))
-    x = torch.rand(2,3,256,256)
-    model = criticNet()
+    y = torch.rand(32,768).cuda()
+    label = torch.randint(0,1024,(32,)).cuda()
+    x = torch.rand(32,3,256,256).cuda()
+    model = criticNet().cuda()
     out = model([x,label,y])
     print(out.shape)

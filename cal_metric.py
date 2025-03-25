@@ -10,6 +10,8 @@ import cv2
 import argparse
 import random
 from sklearn.metrics import classification_report, roc_auc_score, roc_curve, accuracy_score
+from tqdm import tqdm
+
 def setup_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -216,41 +218,41 @@ def CD_metric(X,Y):
 #     cls_index,_ = criterion.classification(outs,('Red',)*1024)  # the later parameter is used for fill blank, no meaning
 #     return cls_index
 
-def testing(testloader, model, criterion, optimizer, lrsch, logger, args, phase='eval', optim_model=None):
-    model.eval()
-    optim_model.eval()
-    loss_logger = 0.
-    label_list = []
-    pred_list  = []
-    for img, ci_patch, img_ori, _,patch_color_name, patch_id in tqdm(testloader,ascii=True,ncols=60):
-        if phase == 'eval':
-            with torch.no_grad():
-                outs = model(img.cuda()) 
-        elif phase == 'optim':
-            with torch.no_grad():
-                img_ori = img_ori.cuda()
-                img_t = optim_model(img_ori)
-                img = cvd_process(img_t)
-                outs = model(img.cuda()) 
-        # ci_rgb = ci_rgb.cuda()
-        # img_target = img_target.cuda()
-        # print("label:",label)
-        batch_index = torch.arange(len(outs),dtype=torch.long)   # 配合第二维度索引使用
-        outs = outs[batch_index,patch_id] # 取出目标位置的颜色embedding
-        loss_batch = criterion(outs,patch_color_name)
-        loss_logger += loss_batch.item()    # 显示全部loss
-        pred,label = criterion.classification(outs,patch_color_name)
-        label_list.extend(label.cpu().detach().tolist())
-        pred_list.extend(pred.cpu().detach().tolist())
-    loss_logger /= len(testloader)
-    if phase == 'eval':
-        print("Val loss:",loss_logger)
-        acc = log_metric('Val', logger,loss_logger,label_list,pred_list)
-        return acc, model.state_dict()
-    elif phase == 'optim':
-        print("Val Optim loss:",loss_logger)
-        acc = log_metric('Val Optim', logger,loss_logger,label_list,pred_list)
-        return acc, optim_model.state_dict()
+# def testing(testloader, method, args):
+#     model.eval()
+#     optim_model.eval()
+#     loss_logger = 0.
+#     label_list = []
+#     pred_list  = []
+#     for img, ci_patch, img_ori, _,patch_color_name, patch_id in tqdm(testloader,ascii=True,ncols=60):
+#         if phase == 'eval':
+#             with torch.no_grad():
+#                 outs = model(img.cuda()) 
+#         elif phase == 'optim':
+#             with torch.no_grad():
+#                 img_ori = img_ori.cuda()
+#                 img_t = optim_model(img_ori)
+#                 img = cvd_process(img_t)
+#                 outs = model(img.cuda()) 
+#         # ci_rgb = ci_rgb.cuda()
+#         # img_target = img_target.cuda()
+#         # print("label:",label)
+#         batch_index = torch.arange(len(outs),dtype=torch.long)   # 配合第二维度索引使用
+#         outs = outs[batch_index,patch_id] # 取出目标位置的颜色embedding
+#         loss_batch = criterion(outs,patch_color_name)
+#         loss_logger += loss_batch.item()    # 显示全部loss
+#         pred,label = criterion.classification(outs,patch_color_name)
+#         label_list.extend(label.cpu().detach().tolist())
+#         pred_list.extend(pred.cpu().detach().tolist())
+#     loss_logger /= len(testloader)
+#     if phase == 'eval':
+#         print("Val loss:",loss_logger)
+#         acc = log_metric('Val', logger,loss_logger,label_list,pred_list)
+#         return acc, model.state_dict()
+#     elif phase == 'optim':
+#         print("Val Optim loss:",loss_logger)
+#         acc = log_metric('Val Optim', logger,loss_logger,label_list,pred_list)
+#         return acc, optim_model.state_dict()
 def log_metric(prefix, logger, loss, target, pred):
     cls_report = classification_report(target, pred, output_dict=True, zero_division=0)
     acc = accuracy_score(target, pred)
@@ -276,17 +278,19 @@ if __name__ == '__main__':
         transforms.ToTensor(),
     ]
     )
-    if args.test == True:
-        finaltestset =  CVDImageNetRand(args.dataset,split=args.test_split,patch_size=args.patch,img_size=args.size,cvd=args.cvd)
-        finaltestloader = torch.utils.data.DataLoader(finaltestset,batch_size=args.batchsize,shuffle = True,num_workers=4)
-        model.load_state_dict(torch.load(pth_location, map_location='cpu'))
-        filtermodel.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
-        # sample_enhancement(model,None,-1,args)  # test optimization
-        testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)    # test performance on dataset
-    img = Image.open('apple.png').convert('RGB')
+    # if args.test == True:
+    #     finaltestset =  CVDImageNetRand(args.dataset,split=args.test_split,patch_size=args.patch,img_size=args.size,cvd=args.cvd)
+    #     finaltestloader = torch.utils.data.DataLoader(finaltestset,batch_size=args.batchsize,shuffle = True,num_workers=4)
+    #     model.load_state_dict(torch.load(pth_location, map_location='cpu'))
+    #     filtermodel.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
+    #     # sample_enhancement(model,None,-1,args)  # test optimization
+    #     testing(finaltestloader,method='WGAN',args)    # test performance on dataset
+    img = Image.open("C:\\Users\\alphadu\\OneDrive\\CIE_CURVE\\CVD_simulation\\test_img\\test2.PNG").convert('RGB').resize((256,256))
     img = np.array(img)/255.
     basic_enhance = AndriodDaltonizer('Deuteranomaly')
     img_enhance = basic_enhance.forward(img)
+    # img_enhance = Image.open("C:\\Users\\alphadu\\OneDrive\\CIE_CURVE\\CVD_simulation\\test_img\\test2_ours.PNG").convert('RGB').resize((256,256))
+    # img_enhance = np.array(img_enhance)/255.
     img_enhance_cvd = cvd_simulate(img_enhance)
     metric1 = LCD_metric(transform1(img_enhance).unsqueeze(0),transform1(img_enhance_cvd).unsqueeze(0))
     metric2 = CD_metric(transform1(img_enhance).unsqueeze(0),transform1(img).unsqueeze(0))

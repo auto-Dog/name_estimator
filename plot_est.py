@@ -60,6 +60,7 @@ parser.add_argument("--tau", type=float, default=0.3)
 parser.add_argument("--x_bins", type=float, default=128.0)  # noise setting, to make input continues-like
 parser.add_argument("--y_bins", type=float, default=128.0)
 parser.add_argument("--prefix", type=str, default='vit_cn5')
+parser.add_argument("--test_mode", type=str, default='eval')
 parser.add_argument('--from_check_point',type=str,default='')
 args = parser.parse_args()
 
@@ -226,5 +227,5 @@ if args.test == True:
     model.load_state_dict(torch.load(pth_location, map_location='cpu'))
     filtermodel.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
     # sample_enhancement(model,None,-1,args)  # test optimization
-    testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)    # test performance on dataset
+    testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args,args.test_mode,filtermodel)    # test performance on dataset
 

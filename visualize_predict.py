@@ -9,7 +9,7 @@ from utils.cvdObserver import cvdSimulateNet
 # from colour.blindness import matrix_cvd_Machado2009
 
 prefix = 'vit_cn6a'
-pic_name = "apple.png"
+pic_name = "C:\\Users\\alphadu\\OneDrive\\CIE_CURVE\\CVD_simulation\\test_img\\test4.PNG"
 pth_location = './Models/model_'+prefix+'.pth'
 pth_optim_location = './Models/model_vit_cn6a_optim_0305.pth'
 image_size = 240
