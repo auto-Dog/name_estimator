@@ -53,6 +53,7 @@ save_root = './run'
 pth_location = './Models/model_'+args.prefix+'.pth'
 pth_nt_location = './Models/model_'+args.prefix+'_nt.pth'
 pth_optim_location = './Models/model_'+args.prefix+'_optim'+'.pth'
+embedding_record_file_path = 'embedding_analysis_{}.csv'
 logger = Logger(save_root)
 logger.global_step = 0
 n_splits = 5
@@ -88,6 +89,26 @@ optimizer_enhance = torch.optim.Adam(model_enhance.parameters(), lr=args.lr, bet
 
 lr_lambda = lambda epoch: min(1.0, (epoch + 1)/5.)  # noqa
 lrsch = torch.optim.lr_scheduler.LambdaLR(optimizer_enhance, lr_lambda=lr_lambda)
+
+topk_records = {'Color Id':[],'Color Embedding':[]}
+all_records = {'Color Id':[],'Color Embedding':[]}
+enhanced_records = {'Color Id':[],'Color Embedding':[]}
+
+def record_embeddings(topk_y,all_y,enhanced_y):
+    topk_records['Color Id'].extend(topk_y[1])
+    topk_records['Color Embedding'].extend(topk_y[0][2].cpu().detach().tolist())
+    all_records['Color Id'].extend(all_y[1])
+    all_records['Color Embedding'].extend(all_y[0][2].cpu().detach().tolist())
+    enhanced_records['Color Id'].extend(enhanced_y[1])
+    enhanced_records['Color Embedding'].extend(enhanced_y[0][2].cpu().detach().tolist())
+
+    top_k_df = pd.DataFrame(topk_records)
+    top_k_df = top_k_df.to_csv(embedding_record_file_path.format('topk'),encoding='utf-8')
+    all_df = pd.DataFrame(all_records)
+    all_df = all_df.to_csv(embedding_record_file_path.format('all'), encoding='utf-8')
+    enhanced_df = pd.DataFrame(enhanced_records)
+    enhanced_df = enhanced_df.to_csv(embedding_record_file_path.format('enhanced'), encoding='utf-8')
+
 
 def calculate_gradient_penalty(real_tuple, fake_tuple, critic):
     """
@@ -148,19 +169,23 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
     x1 = cvd_process(x)
     y1 = classifier(x1)
     y1_all = topk_sample(x,patch_id,y1,labels)
-    real_validity = critic(y1_all)
+    real_validity = critic(y1_all[0])
     # critic_loss = torch.mean(real_validity)
     # critic_loss.backward()
+
+    y1_all_ori = sample(x,patch_id,y1,labels)   # debug
 
     xe = enhancement(x)
     x2 = cvd_process(xe)
     y2 = classifier(x2)
     y2_all = sample(xe,patch_id,y2,labels)  # 0225 update: use xe rather that x
+
+    record_embeddings(y1_all,y1_all_ori,y2_all) # debug
     
-    fake_validity = critic(y2_all)
+    fake_validity = critic(y2_all[0])
 
     # WGAN GP algorithm  
-    gradient_penalty = calculate_gradient_penalty(y1_all, y2_all, critic)
+    gradient_penalty = calculate_gradient_penalty(y1_all[0], y2_all[0], critic)
     # train critic function
     set_requires_grad(critic,True)
     set_requires_grad(enhancement,False)
@@ -181,9 +206,9 @@ def wgan_train(x:torch.Tensor,patch_id,labels,
         x2 = cvd_process(xe)
         y2 = classifier(x2)
         y2_all = sample(xe,patch_id,y2,labels,k=args.batchsize) # 0225 update: use xe rather that x
-        fake_validity = critic(y2_all)
+        fake_validity = critic(y2_all[0])
         # enhancement_loss = -torch.mean(fake_validity) + criterion_L1(xe,x)
-        enhancement_loss = -torch.mean(fake_validity) + iter_lambda*criterion_ssim(xe,x) + 0.3*criterion(y2_all[2],labels)    #criterion_L1(xe,x) + criterion(y2_all[2],labels)    # 0303 update: add infoNCE loss
+        enhancement_loss = -torch.mean(fake_validity) + iter_lambda*criterion_ssim(xe,x) + 0.3*criterion(y2_all[0][2],labels)    #criterion_L1(xe,x) + criterion(y2_all[2],labels)    # 0303 update: add infoNCE loss
         enhancement_loss.backward()
         enhancement_optimizer.step()
     return y2,critic_loss
@@ -194,9 +219,9 @@ def sample(img,patch_id,embedding_patch,gts,k=11):
     batch_index = torch.arange(ori_shape[0],dtype=torch.long)   # 配合第二维度索引使用
     embedding_patch = embedding_patch[batch_index,patch_id]
     if ori_shape[0]<=k:
-        return img,patch_id,embedding_patch
+        return ((img,patch_id,embedding_patch),gts)
     random_start = np.random.randint(0,ori_shape[0]-k)
-    return (img[random_start:random_start+k,...],patch_id[random_start:random_start+k,...],embedding_patch[random_start:random_start+k,...],
+    return ((img[random_start:random_start+k,...],patch_id[random_start:random_start+k,...],embedding_patch[random_start:random_start+k,...]),
     gts[random_start:random_start+k])
 
 def topk_sample(img,patch_id,embedding_patch,gts,top_k=11):
@@ -217,15 +242,20 @@ def topk_sample(img,patch_id,embedding_patch,gts,top_k=11):
     # choose top colors for each type
     gts_np = np.array(gts, dtype=str)
     out_indices = []
+    out_cls = []
     for i, color in enumerate(color_types):
         cls_indices = indices[gts_np[indices] == color]
         cls_needed = min(top_k_per_cls,len(cls_indices))
         selected = cls_indices[:cls_needed]
         out_indices.extend(selected.tolist())
+        out_cls.extend([color]*len(selected.tolist()))
     if len(out_indices)<top_k:  # if fewwer than k samples, select from sorted array len() to top_k
         out_indices.extend(indices[len(out_indices):top_k].tolist())
+        out_cls.extend(gts[len(out_indices):top_k])
+    print('Lengths:',len(out_indices),len(out_cls)) # debug
     out_indices = torch.tensor(out_indices, device=img.device)   # original indices for a given sorted index
-    return img[out_indices,...],patch_id[out_indices,...],embedding_patch[out_indices,...]
+    return ((img[out_indices,...],patch_id[out_indices,...],embedding_patch[out_indices,...]),
+        out_cls)
 
 def set_requires_grad(nets, requires_grad=False):
     """Set requies_grad=Fasle for all the networks to avoid unnecessary computations
@@ -373,6 +403,8 @@ if args.test == True:
     testing(valloader,model,criterion,None,lrsch,logger,args)    # test performance on dataset
 else:
     model.load_state_dict(torch.load(pth_location))
+    # debug
+    model_enhance.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
     for i in range(args.epoch):
         print("===========Epoch:{}==============".format(i))
         # if i==0:

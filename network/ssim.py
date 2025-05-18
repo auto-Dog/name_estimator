@@ -29,6 +29,13 @@ class SSIMLoss(nn.Module):
             return ssim_map
 
     def _ssim(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        # x, y To Gray Scale
+        if x.size(1) == 3:  # Check if input has 3 channels (RGB)
+            x = 0.2989 * x[:, 0, :, :] + 0.5870 * x[:, 1, :, :] + 0.1140 * x[:, 2, :, :]
+            x = x.unsqueeze(1)  # Add channel dimension back
+        if y.size(1) == 3:  # Check if target has 3 channels (RGB)
+            y = 0.2989 * y[:, 0, :, :] + 0.5870 * y[:, 1, :, :] + 0.1140 * y[:, 2, :, :]
+            y = y.unsqueeze(1)  # Add channel dimension back
 
         # Compute means
         ux = F.conv2d(x, self.gaussian_kernel, padding=self.kernel_size // 2, groups=3)

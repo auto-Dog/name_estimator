@@ -1,7 +1,8 @@
+import shutil
 import numpy as np
 import cv2
 import torchvision.transforms as transforms
-from torchvision.datasets import CIFAR10,ImageNet,ImageFolder
+from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader, Dataset
 import torch
 import os
@@ -18,12 +19,14 @@ import colour
 
 parser = argparse.ArgumentParser(description='COLOR-ENHANCEMENT')
 parser.add_argument('--dataset', type=str, default='/data/mingjundu/imagenet100k/')
-parser.add_argument('--patch',type=int, default=8)
-parser.add_argument('--size',type=int, default=256)
+parser.add_argument('--split',type=str, default='imagenet_subval')
+parser.add_argument('--export_folder',type=str, default='imagetnet_samples')
+parser.add_argument('--patch',type=int, default=10)
+parser.add_argument('--size',type=int, default=240)
 parser.add_argument("--cvd", type=str, default='deutan')
 args = parser.parse_args()
 
-df = pd.read_excel('../name_table.xlsx',index_col='Colorname')  # 替换为您的文件路径
+df = pd.read_excel('name_table.xlsx',index_col='Colorname')  # 替换为您的文件路径
 # 初始化字典
 color_name = []
 color_value = []
@@ -65,17 +68,8 @@ color_value_array_lab = sRGB_to_Lab(color_value_array/255.)
 
 def classify_color(rgb):
     # calculate norm as distance between input color and template colors
-    ## use distance in RGB #
-    # distances = np.linalg.norm(color_value_array - rgb, axis=1)
-    ## or use distance in Lab #
     input_lab = sRGB_to_Lab(rgb/255.)
     distances = np.linalg.norm(color_value_array_lab - input_lab, axis=1)
-    
-    # # or use distance in HSV
-    # color_value_array_hsv = colour.RGB_to_HSV(color_value_array/255.)
-    # input_hsv = colour.RGB_to_HSV(rgb/255.)
-    # distances = np.linalg.norm(color_value_array_hsv - input_hsv, axis=1)    
-    # check if it is gray
     if(input_lab[0]>10 and input_lab[0]<90 and abs(input_lab[1])<5 and abs(input_lab[2])<5):
         return 5
     index = np.argmin(distances)
@@ -108,10 +102,8 @@ class CVDImageNet(ImageFolder):
         return img, path
 
 img_size = args.size//args.patch
-trainset = CVDImageNet(dataset_path,split='imagenet_subtrain',patch_size=args.patch,img_size=img_size)
-valset = CVDImageNet(dataset_path,split='imagenet_subval',patch_size=args.patch,img_size=img_size)
-trainloader = torch.utils.data.DataLoader(trainset,batch_size=1,shuffle = True,num_workers=8)
-valloader = torch.utils.data.DataLoader(valset,batch_size=1,shuffle = True,num_workers=8)
+testset = CVDImageNet(dataset_path,split=args.split,patch_size=args.patch,img_size=img_size)
+testloader = torch.utils.data.DataLoader(testset,batch_size=1,shuffle = True,num_workers=1)
 
 def make_data_label(loader,filename):
     X_train = []
@@ -127,20 +119,30 @@ def make_data_label(loader,filename):
             target = color_names[4]
             target_patch_id = x_index*img_size+y_index
             mask = (color_names==target)
-            if np.sum(mask)>=4: # voting,至少有4/9个像素支持当前颜色
+            if np.sum(mask)>=4: # voting,至少有4/9个像素(24*24分辨率上)支持当前颜色
                 X_train.append((path[0],target_patch_id))
                 Y_train.append(target)
         # if len(Y_train)>1000:   # debug
         #     time.sleep(0.5)
         #     break
     # 对数据进行抽样，以保证各类别样本数平衡       
-    under_sampler = RandomUnderSampler(random_state=1337)
+    under_sampler = RandomUnderSampler(random_state=1337,sampling_strategy={i:100 for i in range(12)})
     X_resampled, Y_resampled = under_sampler.fit_resample(X_train,Y_train)
-    print('Resample result:',Counter(Y_resampled))
+    print('Resample Statistic: ',Counter(Y_resampled))
     all_path,all_patch_id = zip(*X_resampled)
-    df_data = {'Path':all_path,'Patch_ID':all_patch_id,'Color_ID':Y_resampled}
+    # export all files in all_path to image folder
+    os.makedirs(args.export_folder, exist_ok=True)
+    all_path_new = []
+    # copy file from original path to new folder
+    for single_path in all_path:
+        single_name = os.path.basename(single_path)
+        new_file_path = os.path.join(args.export_folder, single_name)
+        all_path_new.append(new_file_path)
+        if not os.path.exists(new_file_path):
+            shutil.copy(single_path, new_file_path)
+
+    df_data = {'Path': all_path_new, 'Patch_ID': all_patch_id, 'Color_ID': Y_resampled}
     df_train = pd.DataFrame(data=df_data)
     df_train.to_csv(filename)
 
-make_data_label(trainloader,'train_label.csv')
-make_data_label(valloader,'val_label.csv')
+make_data_label(testloader,'test_label.csv')
