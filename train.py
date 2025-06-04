@@ -18,7 +18,7 @@ from PIL import Image
 from utils.logger import Logger
 from tqdm import tqdm
 from dataloaders.CVDDS import CVDcifar,CVDImageNet,CVDPlace,CVDImageNetRand
-from network import ViT,colorLoss, colorFilter
+from network import ViT,colorLoss, colorFilter, SSIMLoss
 from utils.cvdObserver import cvdSimulateNet
 from utils.conditionP import conditionP
 from utils.utility import patch_split,patch_compose
@@ -52,7 +52,7 @@ parser.add_argument("--cvd", type=str, default='deutan')
 parser.add_argument("--tau", type=float, default=0.3)
 parser.add_argument("--x_bins", type=float, default=128.0)  # noise setting, to make input continues-like
 parser.add_argument("--y_bins", type=float, default=128.0)
-parser.add_argument("--prefix", type=str, default='vit_cn5')
+parser.add_argument("--prefix", type=str, default='vit_cn6b')
 parser.add_argument('--from_check_point',type=str,default='')
 args = parser.parse_args()
 
@@ -69,14 +69,9 @@ train_val_percent = 0.8
 # os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
 # skf = StratifiedGroupKFold(n_splits=n_splits)
 
-# trainset = CVDcifar('./',train=True,download=True,patch_size=args.patch,img_size=args.size,cvd=args.cvd)
-# testset = CVDcifar('./',train=False,download=True,patch_size=args.patch,img_size=args.size,cvd=args.cvd)
 trainset = CVDImageNet(args.dataset,split='imagenet_subtrain',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
 valset = CVDImageNet(args.dataset,split='imagenet_subval',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
 cvd_process = cvdSimulateNet(cvd_type=args.cvd,cuda=True,batched_input=True) # cvd模拟器
-# trainset = CVDPlace('/work/mingjundu/place_dataset/places365_standard/',split='train',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
-# valset = CVDPlace('/work/mingjundu/place_dataset/places365_standard/',split='val',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
-# inferenceset = CIFAR10('./',train=False,download=True,transform=transforms.Compose([transforms.ToTensor(),]))
 
 # train_size = int(len(trainset) * train_val_percent)   # not suitable for ImageNet subset
 # val_size = len(trainset) - train_size
@@ -97,7 +92,7 @@ filtermodel = nn.DataParallel(filtermodel,device_ids=list(range(torch.cuda.devic
 filtermodel = filtermodel.cuda()
 
 criterion = colorLoss(args.tau)
-criterion2 = nn.MSELoss()
+criterion2 = SSIMLoss()
 # optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=0.1)
 
 # Update 11.15
@@ -306,14 +301,23 @@ else:
         model.load_state_dict(torch.load(ckp_location))
     for i in range(args.epoch):
         print("===========Epoch:{}==============".format(i))
-        # if i==0:
-        #     sample_enhancement(model,None,i,args) # debug
+
+        if i==0:
+            sample_enhancement(model,None,i,args) # debug
+
+        # 只训练估计模块
         # train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',filtermodel)
         # score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)
         # if score > best_score:
         #     best_score = score
         #     torch.save(model_save, pth_location)
 
+        # 训练估计模块和增强模块
+        # train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',filtermodel)
+        # score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)
+        # if score > best_score:
+        #     best_score = score
+        #     torch.save(model_save, pth_location)
         # if (i+1)%5 == 0:
         #     train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
         #     score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
@@ -321,6 +325,7 @@ else:
         #     if score_optim > score:
         #         torch.save(model_optim_save, pth_optim_location)
 
+        # 只训练颜色增强模块
         train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
         score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
         sample_enhancement(model,None,i,args)

@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
+from torch.nn import init
+import torchvision.transforms as transforms
 # class colorFilter(nn.Module):
 #     """ Kernel function: kernel(r, g, b) -> (r,g,b,rg,rb,gb,r^2,g^2,b^2,rgb,1)
 #     Ref: Hong, et al., "A study of digital camera colorimetric characterization
@@ -79,9 +81,47 @@ import torch.nn.functional as F
 
 #         out = self.ct_conv_4(out)
 #         return out
+trans_compose_forward = transforms.Compose(
+    [transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])]
+)
+trans_compose_reverse = transforms.Compose(
+    [transforms.Normalize(mean=[-1,-1,-1], std=[2,2,2])]
+)
+def init_weights(net, init_type='normal', init_gain=0.02):
+    """Initialize network weights.
+
+    Parameters:
+        net (network)   -- network to be initialized
+        init_type (str) -- the name of an initialization method: normal | xavier | kaiming | orthogonal
+        init_gain (float)    -- scaling factor for normal, xavier and orthogonal.
+
+    We use 'normal' in the original pix2pix and CycleGAN paper. But xavier and kaiming might
+    work better for some applications. Feel free to try yourself.
+    """
+    def init_func(m):  # define the initialization function
+        classname = m.__class__.__name__
+        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
+            if init_type == 'normal':
+                init.normal_(m.weight.data, 0.0, init_gain)
+            elif init_type == 'xavier':
+                init.xavier_normal_(m.weight.data, gain=init_gain)
+            elif init_type == 'kaiming':
+                init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
+            elif init_type == 'orthogonal':
+                init.orthogonal_(m.weight.data, gain=init_gain)
+            else:
+                raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
+            if hasattr(m, 'bias') and m.bias is not None:
+                init.constant_(m.bias.data, 0.0)
+        elif classname.find('BatchNorm2d') != -1:  # BatchNorm Layer's weight is not a matrix; only normal distribution applies.
+            init.normal_(m.weight.data, 1.0, init_gain)
+            init.constant_(m.bias.data, 0.0)
+
+    print('initialize network with %s' % init_type)
+    net.apply(init_func)  # apply the initialization function <init_func>
 
 class colorFilter(nn.Module):
-    ''' Another version, color filter based on CNN '''
+    '''Color filter based on U-Net'''
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         n_channels = 3
@@ -103,8 +143,11 @@ class colorFilter(nn.Module):
         self.up3 = (Up(256, 128 // factor, bilinear))
         self.up4 = (Up(128, 64, bilinear))
         self.outc = (OutConv(64, n_out_channel))
+        init_weights(self)
 
     def forward(self, x):
+        # accept normalized RGB input ranged (0,1) and output RGB (0,1)
+        x = trans_compose_forward(x)
         x1 = self.inc(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2)
@@ -115,6 +158,7 @@ class colorFilter(nn.Module):
         x = self.up3(x, x2)
         x = self.up4(x, x1)
         logits = self.outc(x)
+        logits = trans_compose_reverse(logits)
         return logits
 
 
@@ -212,4 +256,5 @@ if __name__ == '__main__':
     model_final = colorFilter()
     output_final = model_final(dummy_input)
     print(output_final.shape)  # Should be (1, 3, 64, 64)
-    summary(model_final.cuda(),(3,512,512),64)
+    # or use summary to check the model structure
+    # summary(model_final.cuda(),(3,512,512),64)
