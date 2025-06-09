@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional, Tuple
 # import sys
 # sys.path.append("..")   # debug
 from utils.cvdObserver import cvdSimulateNet
+from utils.colorNamer import PLSAColorClassifier,ChipColorClassifier
 from PIL import Image
 import os
 import pandas as pd
@@ -163,20 +164,24 @@ class CVDImageNetRand(ImageFolder):
         )
         self.cvd_observer = cvdSimulateNet(cvd)
         self.color_name_embeddings = pd.read_csv('basic_color_embeddings.csv',index_col='Name')
-        df = pd.read_excel('name_table.xlsx',index_col='Colorname')  # 替换为您的文件路径
-        # 初始化字典
-        self.color_names = []
-        color_value = []
-        # 遍历DataFrame中的每一行
-        for index, row in df.iterrows():
-            # 获取颜色分类
-            self.color_names.append(row['Classification'])
-            # 将RGB字符串转换为数组
-            rgb_array = [int(x) for x in row['RGB'].split(',')]
-            color_value.append(rgb_array)
+        colornamer_obj = PLSAColorClassifier('w2cM.xml')
+        self.classify_color = colornamer_obj.classify_color
+        # colornamer = ChipColorClassifier('../name_table.xlsx')
+        # self.classify_color = colornamer.classify_color
+        # df = pd.read_excel('name_table.xlsx',index_col='Colorname')  # 替换为您的文件路径
+        # # 初始化字典
+        # self.color_names = []
+        # color_value = []
+        # # 遍历DataFrame中的每一行
+        # for index, row in df.iterrows():
+        #     # 获取颜色分类
+        #     self.color_names.append(row['Classification'])
+        #     # 将RGB字符串转换为数组
+        #     rgb_array = [int(x) for x in row['RGB'].split(',')]
+        #     color_value.append(rgb_array)
 
-        self.color_value_array = np.array(color_value)
-        self.color_value_array_lab = sRGB_to_Lab(self.color_value_array/255.)
+        # self.color_value_array = np.array(color_value)
+        # self.color_value_array_lab = sRGB_to_Lab(self.color_value_array/255.)
         
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         """
@@ -211,37 +216,37 @@ class CVDImageNetRand(ImageFolder):
         # color_index = torch.tensor(color_index,dtype=torch.long)
         return color_embedding, color_name
     
-    def classify_color(self,rgb):
-        ''' Given a color RGB, return its color type number '''
-        rgb = rgb.numpy()  # RGB tensor to numpy
-        # calculate norm as distance between input color and template colors
-        category_map = {
-            'Red': 0,
-            'Green': 1,
-            'Blue': 2,
-            'Black':3,
-            'White':4,
-            'Gray' :5,
-            'Pink' :6,
-            'Orange':7,
-            'Purple':8,
-            'Cyan':9,
-            'Yellow':10,
-            'Brown': 11
-        }
-        # distances = np.linalg.norm(self.color_value_array - rgb, axis=1)
-        # index = np.argmin(distances)
-        # return self.color_names[index], category_map[self.color_names[index]]   # return color words and index
+    # def classify_color(self,rgb):
+    #     ''' Given a color RGB, return its color type number '''
+    #     rgb = rgb.numpy()  # RGB tensor to numpy
+    #     # calculate norm as distance between input color and template colors
+    #     category_map = {
+    #         'Red': 0,
+    #         'Green': 1,
+    #         'Blue': 2,
+    #         'Black':3,
+    #         'White':4,
+    #         'Gray' :5,
+    #         'Pink' :6,
+    #         'Orange':7,
+    #         'Purple':8,
+    #         'Cyan':9,
+    #         'Yellow':10,
+    #         'Brown': 11
+    #     }
+    #     # distances = np.linalg.norm(self.color_value_array - rgb, axis=1)
+    #     # index = np.argmin(distances)
+    #     # return self.color_names[index], category_map[self.color_names[index]]   # return color words and index
 
-        input_lab = sRGB_to_Lab(rgb/255.)
-        distances = np.linalg.norm(self.color_value_array_lab - input_lab, axis=1)
+    #     input_lab = sRGB_to_Lab(rgb/255.)
+    #     distances = np.linalg.norm(self.color_value_array_lab - input_lab, axis=1)
 
-        index = np.argmin(distances)
-        # check if it is gray
-        if(input_lab[0]>10 and input_lab[0]<90 and abs(input_lab[1])<5 and abs(input_lab[2])<5):
-            return 'Gray',5
-        # return color_name[index],None
-        return self.color_names[index],category_map[self.color_names[index]]
+    #     index = np.argmin(distances)
+    #     # check if it is gray
+    #     if(input_lab[0]>10 and input_lab[0]<90 and abs(input_lab[1])<5 and abs(input_lab[2])<5):
+    #         return 'Gray',5
+    #     # return color_name[index],None
+    #     return self.color_names[index],category_map[self.color_names[index]]
 
 class CVDPlace(CVDImageNet):
     def __init__(self, root: str, split: str = "train", patch_size=4, img_size=64,**kwargs: Any) -> None:

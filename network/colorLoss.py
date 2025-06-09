@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 import numpy as np
 import pandas as pd
+import torch.nn.functional as F
 
 class colorLoss(nn.Module):
-    def __init__(self,tau=0.95):
+    def __init__(self,tau=0.95,device='cuda'):
         super().__init__()
         self.tau = tau
         self.mseLoss = nn.MSELoss()
@@ -15,12 +16,13 @@ class colorLoss(nn.Module):
         self.all_names = {}
         for i,(index, row) in enumerate(df.iterrows()):
             single_row = row.to_numpy() / np.linalg.norm(row.to_numpy())    # IMPORTANT: embedding module is around 10, should undergo L2 NORM
-            self.color_name_embeddings_dict[index] = torch.tensor(single_row).float().cuda()    
+            self.color_name_embeddings_dict[index] = torch.tensor(single_row).float().to(device)     
             # print(index,np.linalg.norm(single_row)) # debug
             all_embeddings.append(single_row)
-            self.all_names[index] = torch.tensor(i,dtype=torch.long).cuda()
+            self.all_names[index] = torch.tensor(i,dtype=torch.long).to(device) 
+        self.name_to_index = {name: i for i, name in enumerate(self.color_name_embeddings_dict.keys())}
         self.all_embeddings_list = all_embeddings
-        self.all_embeddings = torch.tensor(np.array(all_embeddings)).float().cuda()   # M colors, M x 768
+        self.all_embeddings = torch.tensor(np.array(all_embeddings)).float().to(device)    # M colors, M x 768
 
     def infoNCELoss(self,x:torch.Tensor,x_names:tuple):
         x = x / x.norm(p=2, dim=-1, keepdim=True)   # L2 norm for cosine similarity
@@ -54,15 +56,37 @@ class colorLoss(nn.Module):
         contras_loss = -torch.log(numerator_similarity/all_similarity)
         return contras_loss,embedding_gt
     
+    def infoNCELoss_fast(self, x: torch.Tensor, x_names: tuple):
+        x = F.normalize(x, dim=-1)  # Nx768
+
+        # Compute cosine similarity logits: [N, M]
+        logits = torch.matmul(x, self.all_embeddings.T) / self.tau  # NxM
+
+        # Build GT index for each x from x_names
+        target_indices = torch.tensor(
+            [self.name_to_index[name] for name in x_names],
+            dtype=torch.long,
+            device=x.device
+        )  # shape: (N,)
+
+        # CE loss: GT index for each row
+        loss = F.cross_entropy(logits, target_indices, reduction='none')  # shape: (N,)
+
+        # Optional: for analysis
+        embedding_gt = self.all_embeddings[target_indices]  # Nx768
+
+        return loss, embedding_gt
     def forward(self,x:torch.Tensor,x_names:tuple):
-        contras_loss,embedding_gt = self.infoNCELoss(x,x_names)
+        contras_loss,embedding_gt = self.infoNCELoss_fast(x,x_names)
         mse_loss = self.mseLoss(x,embedding_gt)*x.shape[0]
         # total_loss = mse_loss
         total_loss = contras_loss.mean() + mse_loss
         return total_loss
 
     def classification(self,x:torch.Tensor,x_names:tuple):
-        '''given N embeddings, return their cloest color type in index form'''
+        '''given N embeddings, return their cloest color type in index form
+        Also return GT index from color names
+        '''
         x = x / x.norm(p=2, dim=-1, keepdim=True)   # L2 norm for cosine similarity
         all_similarity = torch.matmul(x,self.all_embeddings.T)  # B x classes
         val,class_index = torch.max(torch.exp(all_similarity),dim=1,keepdim=True)    # Nx1
@@ -72,14 +96,23 @@ class colorLoss(nn.Module):
         # # OR use index
         # class_index_gt = x_names
         return class_index,class_index_gt
+    
+    def get_logits(self,x:torch.Tensor):
+        '''given N embeddings, return their cloest color type in index form
+        Also return GT index from color names
+        '''
+        x = x / x.norm(p=2, dim=-1, keepdim=True)   # L2 norm for cosine similarity
+        all_similarity = torch.matmul(x,self.all_embeddings.T)  # B x classes
+        logits = F.softmax(all_similarity,dim=1)
+        return logits
 
 if __name__ == '__main__':
     criteria = colorLoss()
     x = criteria.all_embeddings_list[2]  # blue
     # x = (x+criteria.all_embeddings_list[0])/2
     # x[10:100] = 0.
-    x = torch.tensor(x).float().cuda().repeat(2,1) # 2x768
-    # x = 10*torch.randn(2,768).float().cuda()
+    x = torch.tensor(x).float().repeat(2,1) # 2x768
+    # x = 10*torch.randn(2,768).float()
     colors = ('Blue','Blue')    # 2.45
     loss = criteria(x,colors)
     print('loss B-B',loss)

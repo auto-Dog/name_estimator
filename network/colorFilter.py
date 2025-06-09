@@ -85,7 +85,7 @@ trans_compose_forward = transforms.Compose(
     [transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])]
 )
 trans_compose_reverse = transforms.Compose(
-    [transforms.Normalize(mean=[-1,-1,-1], std=[2,2,2])]
+    [transforms.Normalize(mean=[-1.0,-1.0,-1.0], std=[2.0,2.0,2.0])]
 )
 def init_weights(net, init_type='normal', init_gain=0.02):
     """Initialize network weights.
@@ -143,7 +143,6 @@ class colorFilter(nn.Module):
         self.up3 = (Up(256, 128 // factor, bilinear))
         self.up4 = (Up(128, 64, bilinear))
         self.outc = (OutConv(64, n_out_channel))
-        init_weights(self)
 
     def forward(self, x):
         # accept normalized RGB input ranged (0,1) and output RGB (0,1)
@@ -244,9 +243,12 @@ class OutConv(nn.Module):   # different from original
         #     nn.Conv2d(in_channels, out_channels, kernel_size=1)
         # )
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        self.tanh = nn.Tanh()
 
     def forward(self, x):
-        return self.conv(x)
+        x = self.conv(x)
+        x = self.tanh(x)
+        return x
 
 if __name__ == '__main__':
     from torchsummary import summary

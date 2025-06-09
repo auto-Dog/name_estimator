@@ -34,6 +34,9 @@ class cvdSimulateNet(nn.Module):
         self.cuda_flag = cuda
         self.batched_input = batched_input
         beta_L, beta_M, beta_S = (0.63, 0.32, 0.05)
+        self.beta_L = beta_L
+        self.beta_M = beta_M
+        self.beta_S = beta_S
         # lms_to_xyz_mat = np.array([[1.93986443, 1.34664359, 0.43044935, ],
         #                 [0.69283932, 0.34967567, 0, ],
         #                 [0, 0, 2.14687945]])    # 2006 10 degree
@@ -95,6 +98,20 @@ class cvdSimulateNet(nn.Module):
     #     out = input+ori_noise
     #     return out
 
+    def add_noise(self,image_alms:torch.tensor,Y_max=2e4):
+        ''' image_alms：视锥细胞响应，值域0-1. 噪声阈值为取值的sqrt倍. 
+        Fonseca, María da, and Inés Samengo. 
+        Derivation of Human Chromatic Discrimination Ability from an Information-Theoretical Notion of Distance in Color Space.
+        https://doi.org/10.1162/NECO_A_00903.
+        '''
+        image_alms_denormalized = image_alms*Y_max
+        noise_std = torch.sqrt(image_alms_denormalized)
+        noise = torch.randn_like(image_alms_denormalized) * noise_std
+        noisy_image = image_alms_denormalized + noise
+        # print('Noise stds:', noise_std/Y_max)  # debug
+        image_alms = noisy_image / Y_max  # 归一化回0-1范围
+        return image_alms.clamp(0, 1)  # 确保值域在0-1之间
+
     def forward(self,image_sRGB):
         ''' image RGB: 未经处理的原始图像，值域0-1'''
         if not self.batched_input:
@@ -102,29 +119,44 @@ class cvdSimulateNet(nn.Module):
         lms_image = self.sRGB_to_alms(image_sRGB)
         lms_image_cvd = lms_image
         if self.cvd_type == 'protan':
-            lms_image_cvd[:,0,:,:] = lms_image_cvd[:,1,:,:] # 缺L
+            lms_image_cvd[:,0,:,:] = lms_image_cvd[:,1,:,:]/self.beta_M*self.beta_L # 缺L
         elif self.cvd_type == 'deutan':
-            lms_image_cvd[:,1,:,:] = lms_image_cvd[:,0,:,:] # 缺M
+            lms_image_cvd[:,1,:,:] = lms_image_cvd[:,0,:,:]/self.beta_L*self.beta_M # 缺M
+        elif 'protan_' in self.cvd_type:   # protan_xxx形式
+            degree = int(self.cvd_type.split('_')[1])
+            lms_image_cvd[:,0,:,:] = degree/100.*lms_image_cvd[:,1,:,:]/self.beta_M*self.beta_L +\
+                                    (1-degree/100.)*lms_image_cvd[:,0,:,:] # 部分缺L
+        elif 'deutan_' in self.cvd_type:   # deutan_xxx形式
+            degree = int(self.cvd_type.split('_')[1])
+            lms_image_cvd[:,1,:,:] = degree/100.*lms_image_cvd[:,0,:,:]/self.beta_L*self.beta_M +\
+                                    (1-degree/100.)*lms_image_cvd[:,1,:,:] # 部分缺M
         if not self.batched_input:
             lms_image_cvd = lms_image_cvd.squeeze(0)
+        lms_image_cvd = self.add_noise(lms_image_cvd)  # 添加噪声，模拟人眼对颜色的感知 y=Hx+n
         return lms_image_cvd
     
 if __name__ == '__main__':
-    myobserver = cvdSimulateNet(cvd_type='deutan',cuda=False,batched_input=True)
-    image_sample_ori = Image.open('C:\\Users\\Administrator\\OneDrive\\CIE_CURVE\\CVD_simulation\\CVD_test.png').convert('RGB')
+    myobserver = cvdSimulateNet(cvd_type='protan_50',cuda=False,batched_input=True)
+    image_sample_ori = Image.open('../../../CVD_test.png').convert('RGB')
     image_sample_ori = torch.tensor(np.array(image_sample_ori)).permute(2,0,1).unsqueeze(0)/255.
+    # image_sample_ori = torch.tensor(np.array([[[0.35003133, 0.83144364, 0.6597791],
+    #                                            [0.35003133, 0.83144364, 0.6597791],
+    #                                            [0.58516089, 0.77587424, 0.66080132],
+    #                                            [0.95678832, 0.56522484, 0.66385579],
+    #                                            [1.0,1.0,1.0]]])).permute(2,0,1).unsqueeze(0).float()
     image_sample = image_sample_ori.clone()
     print(image_sample.is_leaf)
     # Test loss backward ability
     image_sample.requires_grad = True
     # image_sample = image_sample.cuda()
     image_sample_o = myobserver(image_sample)
-    image_loss = torch.mean(torch.exp(-image_sample_o))
-    image_loss.backward()
-    print(image_sample.grad)
+    # image_loss = torch.mean(torch.exp(-image_sample_o))
+    # image_loss.backward()
+    # print(image_sample.grad)
 
     image_array = image_sample_o.squeeze(0).permute(1,2,0).detach().numpy()
+    print(image_array)  # debug
     # print(np.min(image_array),np.max(image_array))  # debug
-    image_array = image_array/np.max(image_array)
+    image_array = image_array/np.array([0.58,0.26,0.024])   # 归一化，方便查看
     plt.imshow(image_array)
     plt.show()  # 如果看到一只鹿，证明变换有效

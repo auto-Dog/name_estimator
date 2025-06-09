@@ -13,6 +13,7 @@ import pandas as pd
 import json
 from tqdm import tqdm
 from imblearn.under_sampling import RandomUnderSampler
+from utils.colorNamer import ChipColorClassifier, PLSAColorClassifier
 import argparse
 import colour
 
@@ -22,64 +23,11 @@ parser.add_argument('--patch',type=int, default=8)
 parser.add_argument('--size',type=int, default=256)
 parser.add_argument("--cvd", type=str, default='deutan')
 args = parser.parse_args()
-
-df = pd.read_excel('../name_table.xlsx',index_col='Colorname')  # 替换为您的文件路径
-# 初始化字典
-color_name = []
-color_value = []
-# 遍历DataFrame中的每一行
-for index, row in df.iterrows():
-    # 获取颜色分类
-    color_name.append(row['Classification'])
-    # 将RGB字符串转换为数组
-    rgb_array = [int(x) for x in row['RGB'].split(',')]
-    color_value.append(rgb_array)
-
 dataset_path = args.dataset
-color_value_array = np.array(color_value)
-category_map = {
-    'Red': 0,
-    'Green': 1,
-    'Blue': 2,
-    'Black':3,
-    'White':4,
-    'Gray' :5,
-    'Pink' :6,
-    'Orange':7,
-    'Purple':8,
-    'Cyan':9,
-    'Yellow':10,
-    'Brown': 11
-}
-category_names = list(category_map.keys())
-
-def sRGB_to_Lab(rgb1):
-    rgb_batch = np.float32(rgb1)
-    # 重新调整输入数组的形状，使其成为 (n, 1, 3)，符合OpenCV的要求
-    ori_shape = rgb_batch.shape
-    rgb_batch = rgb_batch.reshape(-1, 1, 3)
-    # 使用OpenCV的cvtColor函数转换RGB到Lab
-    lab_batch = cv2.cvtColor(rgb_batch, cv2.COLOR_RGB2Lab)
-    return lab_batch.reshape(ori_shape)  # 还原形状
-color_value_array_lab = sRGB_to_Lab(color_value_array/255.)
-
-def classify_color(rgb):
-    # calculate norm as distance between input color and template colors
-    ## use distance in RGB #
-    # distances = np.linalg.norm(color_value_array - rgb, axis=1)
-    ## or use distance in Lab #
-    input_lab = sRGB_to_Lab(rgb/255.)
-    distances = np.linalg.norm(color_value_array_lab - input_lab, axis=1)
-    
-    # # or use distance in HSV
-    # color_value_array_hsv = colour.RGB_to_HSV(color_value_array/255.)
-    # input_hsv = colour.RGB_to_HSV(rgb/255.)
-    # distances = np.linalg.norm(color_value_array_hsv - input_hsv, axis=1)    
-    # check if it is gray
-    if(input_lab[0]>10 and input_lab[0]<90 and abs(input_lab[1])<5 and abs(input_lab[2])<5):
-        return 5
-    index = np.argmin(distances)
-    return category_map[color_name[index]]
+# colornamer = ChipColorClassifier('../name_table.xlsx')
+# classify_color = colornamer.classify_color
+colornamer = PLSAColorClassifier('../w2cM.xml')
+classify_color = colornamer.classify_color
 
 class CVDImageNet(ImageFolder):
     def __init__(self, root: str, split: str = "train", patch_size=16, img_size=512,**kwargs: Any) -> None:

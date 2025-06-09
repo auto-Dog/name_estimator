@@ -11,6 +11,8 @@ import torchvision.transforms as transforms
 import torchvision.models as models
 from torchvision.datasets import CIFAR10
 from sklearn.metrics import classification_report, roc_auc_score, roc_curve, accuracy_score
+import matplotlib
+matplotlib.use('Agg')  # 设置 Matplotlib 后端为 Agg
 import matplotlib.pyplot as plt
 from PIL import Image
 # from sklearn.model_selection import StratifiedGroupKFold
@@ -18,7 +20,7 @@ from PIL import Image
 from utils.logger import Logger
 from tqdm import tqdm
 from dataloaders.CVDDS import CVDcifar,CVDImageNet,CVDPlace,CVDImageNetRand
-from network import ViT,colorLoss, colorFilter, SSIMLoss
+from network import ViT,colorLoss, colorFilter, SSIMLoss, colorLossEnhance
 from utils.cvdObserver import cvdSimulateNet
 from utils.conditionP import conditionP
 from utils.utility import patch_split,patch_compose
@@ -51,7 +53,7 @@ parser.add_argument('--test_split', type=str, default='imagenet_subval')
 parser.add_argument("--cvd", type=str, default='deutan')
 parser.add_argument("--tau", type=float, default=0.3)
 parser.add_argument("--x_bins", type=float, default=128.0)  # noise setting, to make input continues-like
-parser.add_argument("--y_bins", type=float, default=128.0)
+parser.add_argument("--cvd_warmup_iter", type=float, default=2000.)
 parser.add_argument("--prefix", type=str, default='vit_cn6b')
 parser.add_argument('--from_check_point',type=str,default='')
 args = parser.parse_args()
@@ -78,8 +80,8 @@ cvd_process = cvdSimulateNet(cvd_type=args.cvd,cuda=True,batched_input=True) # c
 # trainset, valset = torch.utils.data.random_split(trainset, [train_size, val_size])
 print(f'Dataset Information: Training Samples:{len(trainset)}, Validating Samples:{len(valset)}')
 
-trainloader = torch.utils.data.DataLoader(trainset,batch_size=args.batchsize,shuffle = True,num_workers=8)
-valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize,shuffle = True,num_workers=8)
+trainloader = torch.utils.data.DataLoader(trainset,batch_size=args.batchsize,shuffle = True,num_workers=16)
+valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize,shuffle = True,num_workers=16)
 # testloader = torch.utils.data.DataLoader(testset,batch_size=args.batchsize,shuffle = False)
 # inferenceloader = torch.utils.data.DataLoader(inferenceset,batch_size=args.batchsize,shuffle = False,)
 # trainval_loader = {'train' : trainloader, 'valid' : validloader}
@@ -87,20 +89,22 @@ valloader = torch.utils.data.DataLoader(valset,batch_size=args.batchsize,shuffle
 model = ViT('ColorViT', pretrained=False,image_size=args.size,patches=args.patch,num_layers=6,num_heads=6,num_classes = 1000)
 model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
 model = model.cuda()
-filtermodel = colorFilter().cuda()
-filtermodel = nn.DataParallel(filtermodel,device_ids=list(range(torch.cuda.device_count())))
-filtermodel = filtermodel.cuda()
+optim_model = colorFilter().cuda()
+optim_model = nn.DataParallel(optim_model,device_ids=list(range(torch.cuda.device_count())))
+optim_model = optim_model.cuda()
 
 criterion = colorLoss(args.tau)
 criterion2 = SSIMLoss()
+criterion3 = colorLossEnhance(args.tau)
+# criterion2 = nn.L1Loss()    # debug
 # optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=0.1)
 
 # Update 11.15
 optimizer = torch.optim.Adamax(model.parameters(), lr=args.lr, weight_decay=5e-5)
-optimizer_optim = torch.optim.Adamax(filtermodel.parameters(), lr=args.lr, weight_decay=5e-5)
+optimizer_optim = torch.optim.Adamax(optim_model.parameters(), lr=args.lr, weight_decay=5e-5)
 lr_lambda = lambda epoch: min(1.0, (epoch + 1)/5.)  # noqa
 lrsch = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
-
+iter_count = 0
 # lrsch = torch.optim.lr_scheduler.MultiStepLR(optimizer,milestones=[10,20],gamma=0.3)
 logger.auto_backup('./')
 
@@ -115,6 +119,7 @@ def add_input_noise(input:torch.Tensor,channel_max=(0.6,0.6,0.025),bins=256):
 
 import time
 def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='train', optim_model=None):
+    global iter_count
     if phase=='train':
         model.train()
         logger.update_step()
@@ -165,17 +170,21 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='
         loss_logger = 0.
         label_list = []
         pred_list  = []
-        for img, ci_patch, img_ori, _,patch_color_name, patch_id  in tqdm(trainloader,ascii=True,ncols=60):
+        
+        for img, ci_patch, img_ori, patch_ori, patch_color_name, patch_id  in tqdm(trainloader,ascii=True,ncols=60):
             optimizer.zero_grad()
-            img = img.cuda()
             img_ori = img_ori.cuda()
             img_t = optim_model(img_ori)
-            img = cvd_process(img_t)
-            outs = model(img)
+            img_t_c = cvd_process(img_t)
+            outs = model(img_t_c)
             batch_index = torch.arange(len(outs),dtype=torch.long)   # 配合第二维度索引使用
             outs = outs[batch_index,patch_id] # 取出目标位置的颜色embedding
+
             # print('Model use:',time.time()-st_time) # debug
-            loss_batch = 5*criterion(outs,patch_color_name)+criterion2(img_t,img_ori)
+            # loss_batch = min(1.0,(iter_count/args.cvd_warmup_iter))*criterion(outs,patch_color_name)\
+            #     +criterion2(img_t,img_ori)
+            loss_batch = min(1.0,(iter_count/args.cvd_warmup_iter))*criterion(outs,patch_ori)\
+                +criterion2(img_t,img_ori)
             # print('Loss Func. use:',time.time()-st_time)    # debug
             pred,label = criterion.classification(outs,patch_color_name)
             # print('Classification use:',time.time()-st_time)    # debug
@@ -184,6 +193,9 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='
             loss_batch.backward()
             loss_logger += loss_batch.item()    # 显示全部loss
             optimizer.step()
+            if iter_count%1000==0:
+                sample_enhancement(model,None,iter_count,args)
+            iter_count += 1
         # lrsch.step()
 
         loss_logger /= len(trainloader)
@@ -204,8 +216,8 @@ def validate(testloader, model, criterion, optimizer, lrsch, logger, args, phase
             with torch.no_grad():
                 img_ori = img_ori.cuda()
                 img_t = optim_model(img_ori)
-                img = cvd_process(img_t)
-                outs = model(img.cuda()) 
+                img_t_c = cvd_process(img_t)
+                outs = model(img_t_c) 
         # ci_rgb = ci_rgb.cuda()
         # img_target = img_target.cuda()
         # print("label:",label)
@@ -252,20 +264,20 @@ def sample_enhancement(model,inferenceloader,epoch,args):
 
     image_sample = torch.tensor(image_sample).permute(2,0,1).unsqueeze(0)/255.
     image_sample = image_sample.cuda()
-    img_out = image_sample.clone()
+    img_ori = image_sample.clone()
 
     # 一次性生成方案：
-    filtermodel.eval()
-    img_t = filtermodel(img_out)    # 采用cnn变换改变色彩
-    img_cvd = cvd_process(img_t)
-    outs = model(img_cvd)
-    outs = outs[0]  # 去掉batch维度
+    optim_model.eval()
+    img_t = optim_model(img_ori)    # 采用cnn变换改变色彩
+    # img_cvd = cvd_process(img_t)
+    # outs = model(img_cvd)
+    # outs = outs[0]  # 去掉batch维度
 
-    ori_out_array = img_out.squeeze(0).permute(1,2,0).cpu().detach().numpy()
+    ori_out_array = img_ori.squeeze(0).permute(1,2,0).cpu().detach().numpy()
     img_out_array = img_t.clone()
     img_out_array = img_out_array.squeeze(0).permute(1,2,0).cpu().detach().numpy()
 
-    img_diff = (img_out_array - ori_out_array)*10.0
+    img_diff = np.abs(img_out_array - ori_out_array)*10.0 # 夸张显示色彩差异
     img_all_array = np.clip(np.hstack([ori_out_array,img_out_array,img_diff]),0.0,1.0)
     plt.imshow(img_all_array)
     plt.savefig('./run/'+f'sample_{args.prefix}_e{epoch}.png')
@@ -293,9 +305,9 @@ if args.test == True:
     finaltestset =  CVDImageNetRand(args.dataset,split=args.test_split,patch_size=args.patch,img_size=args.size,cvd=args.cvd)
     finaltestloader = torch.utils.data.DataLoader(finaltestset,batch_size=args.batchsize,shuffle = True,num_workers=4)
     model.load_state_dict(torch.load(pth_location, map_location='cpu'))
-    filtermodel.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
+    optim_model.load_state_dict(torch.load(pth_optim_location, map_location='cpu'))
     # sample_enhancement(model,None,-1,args)  # test optimization
-    testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)    # test performance on dataset
+    testing(finaltestloader,model,criterion,optimizer,lrsch,logger,args,'optim',optim_model)    # test performance on dataset
 else:
     if args.from_check_point != '':
         model.load_state_dict(torch.load(ckp_location))
@@ -304,32 +316,30 @@ else:
 
         if i==0:
             sample_enhancement(model,None,i,args) # debug
-
         # 只训练估计模块
-        # train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',filtermodel)
-        # score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)
+        # train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',optim_model)
+        # score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',optim_model)
         # if score > best_score:
         #     best_score = score
         #     torch.save(model_save, pth_location)
 
         # 训练估计模块和增强模块
-        # train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',filtermodel)
-        # score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',filtermodel)
+        # train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',optim_model)
+        # score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',optim_model)
         # if score > best_score:
         #     best_score = score
         #     torch.save(model_save, pth_location)
         # if (i+1)%5 == 0:
-        #     train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
-        #     score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
+        #     train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',optim_model)
+        #     score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',optim_model)
         #     sample_enhancement(model,None,i,args)
         #     if score_optim > score:
         #         torch.save(model_optim_save, pth_optim_location)
 
         # 只训练颜色增强模块
-        train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',filtermodel)
-        score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',filtermodel)
+        train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',optim_model)
+        score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',optim_model)
         sample_enhancement(model,None,i,args)
         if score_optim > best_score:
             best_score = score_optim
             torch.save(model_optim_save, pth_optim_location)
-
