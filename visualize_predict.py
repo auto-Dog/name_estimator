@@ -11,16 +11,17 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 import os
 # from colour.blindness import matrix_cvd_Machado2009
 
-prefix = 'vit_cn6a'
+prefix = 'vit_cn7aP90'
+cvd_type = 'protan_90'
 # 单张推理, 使用pic_name, 多张推理, 使用folder_name, 并在folder下直接新建一个文件夹存储原图、增强后以及其颜色命名结果的图像
 batch_inference = True
-pic_name = "../../test_img/test2.PNG"
+pic_name = "CVD_test_digit.png"
 folder_name = "../Abstract_gallery_test"
 pth_location = './Models/model_'+prefix+'.pth'
 pth_optim_location = './Models/model_vit_cn6b_optim_base.pth'
 image_size = 240
 patch_size = 10
-cvd_type = 'deutan'
+
 
 model = ViT('ColorViT', pretrained=False,image_size=image_size,patches=patch_size,num_layers=6,num_heads=6,num_classes=1000)
 model = nn.DataParallel(model,device_ids=list(range(torch.cuda.device_count())))
@@ -162,8 +163,8 @@ def visualize_name(img:np.ndarray):
         x_pos = patch_x_i * (patch_size + 2) + 4
         text_color = color_rep_value[name] /255
         # plt.text(x_pos+2, y_pos, name[0:3], color='white', fontsize=8)
-        ax.text(x_pos, y_pos, '*', color=text_color, fontsize=12)
-    patch_canvas = np.clip(patch_canvas,0,1)
+        ax.text(x_pos, y_pos, '█', color=text_color, fontsize=12)
+    patch_canvas = np.clip(patch_canvas,0,1)*0
     ax.axis('off')
     ax.imshow(patch_canvas)
     canvas = FigureCanvasAgg(plt.gcf())

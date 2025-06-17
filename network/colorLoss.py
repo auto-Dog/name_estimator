@@ -80,7 +80,8 @@ class colorLoss(nn.Module):
         contras_loss,embedding_gt = self.infoNCELoss_fast(x,x_names)
         mse_loss = self.mseLoss(x,embedding_gt)*x.shape[0]
         # total_loss = mse_loss
-        total_loss = contras_loss.mean() + mse_loss
+        total_loss = contras_loss.mean()
+        # total_loss = contras_loss.mean() + mse_loss
         return total_loss
 
     def classification(self,x:torch.Tensor,x_names:tuple):
@@ -107,7 +108,7 @@ class colorLoss(nn.Module):
         return logits
 
 if __name__ == '__main__':
-    criteria = colorLoss()
+    criteria = colorLoss(tau=0.3,device='cpu')
     x = criteria.all_embeddings_list[2]  # blue
     # x = (x+criteria.all_embeddings_list[0])/2
     # x[10:100] = 0.

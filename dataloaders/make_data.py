@@ -21,12 +21,12 @@ parser = argparse.ArgumentParser(description='COLOR-ENHANCEMENT')
 parser.add_argument('--dataset', type=str, default='/data/mingjundu/imagenet100k/')
 parser.add_argument('--patch',type=int, default=8)
 parser.add_argument('--size',type=int, default=256)
-parser.add_argument("--cvd", type=str, default='deutan')
+# parser.add_argument("--cvd", type=str, default='deutan')
 args = parser.parse_args()
 dataset_path = args.dataset
 # colornamer = ChipColorClassifier('../name_table.xlsx')
 # classify_color = colornamer.classify_color
-colornamer = PLSAColorClassifier('../w2cM.xml')
+colornamer = PLSAColorClassifier('w2cM.xml')
 classify_color = colornamer.classify_color
 
 class CVDImageNet(ImageFolder):
@@ -71,11 +71,11 @@ def make_data_label(loader,filename):
             y_index = np.random.randint(1,img_size-1)
             surroundings = img[0, :, x_index-1:x_index+2, y_index-1:y_index+2].reshape(3,-1)
             for j in range(9):
-                color_names[j] = classify_color(surroundings[:,j].flatten().numpy()*255)
+                _,color_names[j] = classify_color(surroundings[:,j].flatten().numpy()*255)
             target = color_names[4]
             target_patch_id = x_index*img_size+y_index
             mask = (color_names==target)
-            if np.sum(mask)>=4: # voting,至少有4/9个像素支持当前颜色
+            if np.sum(mask)>=5: # voting,至少有5/9个像素支持当前颜色
                 X_train.append((path[0],target_patch_id))
                 Y_train.append(target)
         # if len(Y_train)>1000:   # debug

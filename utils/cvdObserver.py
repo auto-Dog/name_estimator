@@ -5,7 +5,7 @@ import torch.nn as nn
 # import colour
 from PIL import Image
 import matplotlib.pyplot as plt
-
+import torch.nn.functional as F
 class cvdObserver:
     '''一个色觉障碍人士的模拟观察'''
     def __init__(self,severe = 0.1,cvd_type='PRO') -> None:
@@ -98,17 +98,43 @@ class cvdSimulateNet(nn.Module):
     #     out = input+ori_noise
     #     return out
 
-    def add_noise(self,image_alms:torch.tensor,Y_max=2e4):
+    def add_noise(self,image_alms:torch.tensor,Y_max=1e4):
         ''' image_alms：视锥细胞响应，值域0-1. 噪声阈值为取值的sqrt倍. 
         Fonseca, María da, and Inés Samengo. 
         Derivation of Human Chromatic Discrimination Ability from an Information-Theoretical Notion of Distance in Color Space.
         https://doi.org/10.1162/NECO_A_00903.
         '''
-        image_alms_denormalized = image_alms*Y_max
+
+        # # 即使加了高斯噪声，模型也可以从局部均值求解得到某颜色的精确值。因此，需要量化，让CVD和正常人的LMS空间分辨率一样。
+        ref_threshold = torch.tensor([0.586,0.293,0.025]).float().to(image_alms.device)
+        ref_threshold = torch.sqrt(ref_threshold* Y_max)/ Y_max  # 参考阈值
+        if len(image_alms.shape)==4:
+            ref_threshold = ref_threshold.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+        elif len(image_alms.shape)==3:
+            ref_threshold = ref_threshold.unsqueeze(-1).unsqueeze(-1)
+        elif len(image_alms.shape)==2:
+            ref_threshold = ref_threshold.unsqueeze(0)
+        # def ste_round(x):
+        #     ''' 实现ste_round，用于可微量化. 梯度为x自身梯度'''
+        #     return (torch.round(x) - x).detach() + x + 1e-6
+        image_alms = torch.round(image_alms / ref_threshold) * ref_threshold  # 按照ref_threshold量化image_alms
+        # image_alms = image_alms.clamp(0, 1)  # 确保值域在0-1之间
+        image_alms_denormalized = torch.abs(image_alms*Y_max)
         noise_std = torch.sqrt(image_alms_denormalized)
-        noise = torch.randn_like(image_alms_denormalized) * noise_std
+        noise = torch.randn_like(image_alms_denormalized) * noise_std*0
+        
+        # ori_size = (image_alms_denormalized.shape[2],image_alms_denormalized.shape[3])
+        # thumbnail_size = (image_alms_denormalized.shape[2]//10 if image_alms_denormalized.shape[2]>10 else image_alms_denormalized.shape[2],
+        #                    image_alms_denormalized.shape[3]//10 if image_alms_denormalized.shape[3]>10 else image_alms_denormalized.shape[3])
+        # image_alms_denormalized_thumb = F.interpolate(image_alms_denormalized, size = thumbnail_size, mode='nearest').float()
+        # noise_std = torch.sqrt(image_alms_denormalized_thumb)
+        # noise = torch.randn_like(image_alms_denormalized_thumb) * noise_std
+        # print('\nOri lms:', image_alms)  # debug
+        # print('\nNoise stds:', noise_std/Y_max)  # debug
+        # noise = F.interpolate(noise, size=ori_size, mode='area').float()  # 恢复到原图大小
+
         noisy_image = image_alms_denormalized + noise
-        # print('Noise stds:', noise_std/Y_max)  # debug
+        # print('Noise stds:', noise/Y_max)  # debug
         image_alms = noisy_image / Y_max  # 归一化回0-1范围
         return image_alms.clamp(0, 1)  # 确保值域在0-1之间
 
@@ -132,18 +158,39 @@ class cvdSimulateNet(nn.Module):
                                     (1-degree/100.)*lms_image_cvd[:,1,:,:] # 部分缺M
         if not self.batched_input:
             lms_image_cvd = lms_image_cvd.squeeze(0)
-        lms_image_cvd = self.add_noise(lms_image_cvd)  # 添加噪声，模拟人眼对颜色的感知 y=Hx+n
+        # 添加噪声，模拟人眼对颜色的感知 y=Hx+n. 由于加噪声步骤包含不可微操作，故进行STE
+        lms_image_cvd = (self.add_noise(lms_image_cvd) - lms_image_cvd).detach()+lms_image_cvd 
         return lms_image_cvd
     
 if __name__ == '__main__':
-    myobserver = cvdSimulateNet(cvd_type='protan_50',cuda=False,batched_input=True)
-    image_sample_ori = Image.open('../../../CVD_test.png').convert('RGB')
+    myobserver = cvdSimulateNet(cvd_type='protan_80',cuda=False,batched_input=True)
+    image_sample_ori = Image.open('../../../CVD_test_digit.png').convert('RGB')
     image_sample_ori = torch.tensor(np.array(image_sample_ori)).permute(2,0,1).unsqueeze(0)/255.
-    # image_sample_ori = torch.tensor(np.array([[[0.35003133, 0.83144364, 0.6597791],
-    #                                            [0.35003133, 0.83144364, 0.6597791],
-    #                                            [0.58516089, 0.77587424, 0.66080132],
-    #                                            [0.95678832, 0.56522484, 0.66385579],
+    # image_sample_ori = torch.tensor(np.array([[[0.35003133, 0.83144364, 0.6597791], # deutan
+    #                                         [0.35003133, 0.83144364 ,0.6597791 ],
+    #                                         [0.58516089 ,0.77587424 ,0.66080132],
+    #                                         [0.73700171 ,0.71454281 ,0.6618215 ],
+    #                                         [0.85619809 ,0.64546611 ,0.66283965],
+    #                                         [0.95678832 ,0.56522484 ,0.66385579],
+    #                                         [0.95678832 ,0.66522484 ,0.76385579],
     #                                            [1.0,1.0,1.0]]])).permute(2,0,1).unsqueeze(0).float()
+    # image_sample_ori = torch.tensor(np.array([[
+    #                                         [51,218,167],    # 0
+    #                                         [200,208,165],   # 8
+    #                                         [210,207,165],   # 9
+    #                                         [220,205,164],   #10
+    #                                        [229,204,164],    #11
+    #                                        [238,203,164],
+    #                                        [246,202,163],
+    #                                        [254,200,163],]])).permute(2,0,1).unsqueeze(0).float()/255.
+    # # image_sample_ori = torch.tensor(np.array([[
+    #                                         [0,0,0],    # 0
+    #                                         [25,53,59],   # 8
+    #                                         [25,253,59],   # 9
+    #                                         [30,150,100],   #10
+    #                                        [80,150,100],    #11
+    #                                 ]])).permute(2,0,1).unsqueeze(0).float()/255.
+
     image_sample = image_sample_ori.clone()
     print(image_sample.is_leaf)
     # Test loss backward ability

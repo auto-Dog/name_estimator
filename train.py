@@ -24,7 +24,7 @@ from network import ViT,colorLoss, colorFilter, SSIMLoss, colorLossEnhance
 from utils.cvdObserver import cvdSimulateNet
 from utils.conditionP import conditionP
 from utils.utility import patch_split,patch_compose
-
+from kornia.color import rgb_to_lab
 # hugface官方实现
 # from transformers import ViTImageProcessor, ViTForImageClassification
 # processor = ViTImageProcessor.from_pretrained('google/vit-base-patch16-224')
@@ -56,13 +56,15 @@ parser.add_argument("--x_bins", type=float, default=128.0)  # noise setting, to 
 parser.add_argument("--cvd_warmup_iter", type=float, default=2000.)
 parser.add_argument("--prefix", type=str, default='vit_cn6b')
 parser.add_argument('--from_check_point',type=str,default='')
+parser.add_argument('--train_mode',type=str,default='est',choices=['est','optim','both'])  # est: 只训练颜色估计模块；optim: 只训练颜色增强模块；both: 两个模块都训练
 args = parser.parse_args()
 
 print(args) # show all parameters
 ### write model configs here
-save_root = './run'
+save_root = './run/'+args.prefix
 pth_location = './Models/model_'+args.prefix+'.pth'
 pth_optim_location = './Models/model_'+args.prefix+'_optim_base'+'.pth'
+# pth_optim_location = './Models/model_vit_cn7aE_D100_optim_base'+'.pth'
 ckp_location = './Models/'+args.from_check_point
 logger = Logger(save_root)
 logger.global_step = 0
@@ -74,7 +76,8 @@ train_val_percent = 0.8
 trainset = CVDImageNet(args.dataset,split='imagenet_subtrain',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
 valset = CVDImageNet(args.dataset,split='imagenet_subval',patch_size=args.patch,img_size=args.size,cvd=args.cvd)
 cvd_process = cvdSimulateNet(cvd_type=args.cvd,cuda=True,batched_input=True) # cvd模拟器
-
+lab_normalize = transforms.Compose([transforms.Normalize((0, 0, 0), (100, 128, 128))])  # lab归一化
+rgb_to_lab_normal = lambda x: lab_normalize(rgb_to_lab(x))
 # train_size = int(len(trainset) * train_val_percent)   # not suitable for ImageNet subset
 # val_size = len(trainset) - train_size
 # trainset, valset = torch.utils.data.random_split(trainset, [train_size, val_size])
@@ -95,13 +98,13 @@ optim_model = optim_model.cuda()
 
 criterion = colorLoss(args.tau)
 criterion2 = SSIMLoss()
-criterion3 = colorLossEnhance(args.tau)
-# criterion2 = nn.L1Loss()    # debug
+# criterion3 = colorLossEnhance(args.tau)
+# criterion3 = nn.MSELoss()    # debug
 # optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=0.1)
 
 # Update 11.15
-optimizer = torch.optim.Adamax(model.parameters(), lr=args.lr, weight_decay=5e-5)
-optimizer_optim = torch.optim.Adamax(optim_model.parameters(), lr=args.lr, weight_decay=5e-5)
+optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=5e-5)
+optimizer_optim = torch.optim.Adam(optim_model.parameters(), lr=args.lr, weight_decay=5e-5)
 lr_lambda = lambda epoch: min(1.0, (epoch + 1)/5.)  # noqa
 lrsch = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
 iter_count = 0
@@ -120,20 +123,21 @@ def add_input_noise(input:torch.Tensor,channel_max=(0.6,0.6,0.025),bins=256):
 import time
 def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='train', optim_model=None):
     global iter_count
+    train_iter = tqdm(trainloader,ascii=True,ncols=60)
     if phase=='train':
         model.train()
         logger.update_step()
         loss_logger = 0.
         label_list = []
         pred_list  = []
-        for img, ci_patch, img_ori, _,patch_color_name, patch_id  in tqdm(trainloader,ascii=True,ncols=60):
+        for img, ci_patch, img_ori, _,patch_color_name, patch_id  in train_iter:
             optimizer.zero_grad()
             img = img.cuda()
             ci_patch = ci_patch.cuda()
             # st_time = time.time()   # debug
             # print('Timer now')  # debug
-
-            outs = model(add_input_noise(img,bins=args.x_bins))
+            outs = model(img)   # 已经在observer中添加noise
+            # outs = model(add_input_noise(img,bins=args.x_bins))
             batch_index = torch.arange(len(outs),dtype=torch.long)   # 配合第二维度索引使用
             outs = outs[batch_index,patch_id] # 取出目标位置的颜色embedding
             # print('Model use:',time.time()-st_time) # debug
@@ -156,6 +160,7 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='
             loss_batch.backward()
             loss_logger += loss_batch.item()    # 显示全部loss
             optimizer.step()
+            train_iter.set_postfix(loss=loss_batch.item())
         lrsch.step()
 
         loss_logger /= len(trainloader)
@@ -171,7 +176,7 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='
         label_list = []
         pred_list  = []
         
-        for img, ci_patch, img_ori, patch_ori, patch_color_name, patch_id  in tqdm(trainloader,ascii=True,ncols=60):
+        for img, ci_patch, img_ori, patch_ori, patch_color_name, patch_id  in train_iter:
             optimizer.zero_grad()
             img_ori = img_ori.cuda()
             img_t = optim_model(img_ori)
@@ -183,24 +188,31 @@ def train(trainloader, model, criterion, optimizer, lrsch, logger, args, phase='
             # print('Model use:',time.time()-st_time) # debug
             # loss_batch = min(1.0,(iter_count/args.cvd_warmup_iter))*criterion(outs,patch_color_name)\
             #     +criterion2(img_t,img_ori)
-            loss_batch = min(1.0,(iter_count/args.cvd_warmup_iter))*criterion(outs,patch_ori)\
-                +criterion2(img_t,img_ori)
+            loss_batch = 0.6*min(1.0,(iter_count/args.cvd_warmup_iter))*criterion(outs,patch_color_name)\
+                +0.4*criterion2(img_t,img_ori)
+                # +0.1*criterion3(rgb_to_lab(img_t)[:,1:,:,:],rgb_to_lab(img_ori)[:,1:,:,:])  # ab channel
             # print('Loss Func. use:',time.time()-st_time)    # debug
             pred,label = criterion.classification(outs,patch_color_name)
             # print('Classification use:',time.time()-st_time)    # debug
             label_list.extend(label.cpu().detach().tolist())
             pred_list.extend(pred.cpu().detach().tolist())
             loss_batch.backward()
+            # 查看梯度
+            # print(optim_model.module.outc.conv.weight.grad.max())
             loss_logger += loss_batch.item()    # 显示全部loss
             optimizer.step()
             if iter_count%1000==0:
                 sample_enhancement(model,None,iter_count,args)
             iter_count += 1
+            # 在 tqdm 进度条中实时显示当前批次的 loss
+            train_iter.set_postfix(loss=loss_batch.item())
+
         # lrsch.step()
 
         loss_logger /= len(trainloader)
         print("Train Optim loss:",loss_logger)
         log_metric('Train Optim',logger,loss_logger,label_list,pred_list)
+        
 
 def validate(testloader, model, criterion, optimizer, lrsch, logger, args, phase='eval', optim_model=None):
     model.eval()
@@ -208,7 +220,8 @@ def validate(testloader, model, criterion, optimizer, lrsch, logger, args, phase
     loss_logger = 0.
     label_list = []
     pred_list  = []
-    for img, ci_patch, img_ori, patch_ori, patch_color_name, patch_id in tqdm(testloader,ascii=True,ncols=60):
+    val_iter = tqdm(testloader,ascii=True,ncols=60)
+    for img, ci_patch, img_ori, patch_ori, patch_color_name, patch_id in val_iter:
         if phase == 'eval':
             with torch.no_grad():
                 outs = model(img.cuda()) 
@@ -228,6 +241,8 @@ def validate(testloader, model, criterion, optimizer, lrsch, logger, args, phase
         pred,label = criterion.classification(outs,patch_color_name)
         label_list.extend(label.cpu().detach().tolist())
         pred_list.extend(pred.cpu().detach().tolist())
+        # 在 tqdm 进度条中实时显示当前批次的 loss
+        val_iter.set_postfix(loss=loss_batch.item())
     loss_logger /= len(testloader)
     if phase == 'eval':
         print("Val loss:",loss_logger)
@@ -316,30 +331,31 @@ else:
 
         if i==0:
             sample_enhancement(model,None,i,args) # debug
-        # 只训练估计模块
-        # train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',optim_model)
-        # score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',optim_model)
-        # if score > best_score:
-        #     best_score = score
-        #     torch.save(model_save, pth_location)
-
-        # 训练估计模块和增强模块
-        # train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',optim_model)
-        # score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',optim_model)
-        # if score > best_score:
-        #     best_score = score
-        #     torch.save(model_save, pth_location)
-        # if (i+1)%5 == 0:
-        #     train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',optim_model)
-        #     score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',optim_model)
-        #     sample_enhancement(model,None,i,args)
-        #     if score_optim > score:
-        #         torch.save(model_optim_save, pth_optim_location)
-
-        # 只训练颜色增强模块
-        train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',optim_model)
-        score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',optim_model)
-        sample_enhancement(model,None,i,args)
-        if score_optim > best_score:
-            best_score = score_optim
-            torch.save(model_optim_save, pth_optim_location)
+        if args.train_mode == 'est':
+            # 只训练估计模块
+            train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',optim_model)
+            score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',optim_model)
+            if score > best_score:
+                best_score = score
+                torch.save(model_save, pth_location)
+        elif args.train_mode == 'both':
+            # 训练估计模块和增强模块
+            train(trainloader, model,criterion,optimizer,lrsch,logger,args,'train',optim_model)
+            score, model_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'eval',optim_model)
+            if score > best_score:
+                best_score = score
+                torch.save(model_save, pth_location)
+            if (i+1)%5 == 0:
+                train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',optim_model)
+                score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',optim_model)
+                sample_enhancement(model,None,i,args)
+                if score_optim > score:
+                    torch.save(model_optim_save, pth_optim_location)
+        elif args.train_mode == 'optim':
+            # 只训练颜色增强模块
+            train(trainloader, model,criterion,optimizer_optim,lrsch,logger,args,'optim',optim_model)
+            score_optim, model_optim_save = validate(valloader,model,criterion,optimizer,lrsch,logger,args,'optim',optim_model)
+            sample_enhancement(model,None,i,args)
+            if score_optim > best_score:
+                best_score = score_optim
+                torch.save(model_optim_save, pth_optim_location)

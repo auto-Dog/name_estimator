@@ -52,7 +52,7 @@ class ColorNaming():
 class colorLossEnhance(nn.Module):
     def __init__(self,tau=0.95,device='cuda'):
         super().__init__()
-        self.color_namer = ColorNaming()
+        self.color_namer = ColorNaming(device=device)
         self.KL_loss = nn.KLDivLoss(reduction='none')
         # store dataframe into dict
         df = pd.read_csv('basic_color_embeddings.csv',index_col='Name')
@@ -76,19 +76,21 @@ class colorLossEnhance(nn.Module):
     def forward(self,x:torch.Tensor,x_patch:torch.Tensor):
         average_rgb = torch.mean(x_patch,dim=(2,3))   # output Nx3
         color_logits = self.color_namer(average_rgb)    # output Nx11
+        color_logits = F.softmax(color_logits/self.tau,dim=1)
         color_logits = self.interleave(color_logits)    
         # print('color_logits:',color_logits)  # debug
         predict_logits = self.get_logits(x) # output Nx11
         # print('predict_logits:',predict_logits)  # debug
         # KL loss
-        loss = self.KL_loss(color_logits.log(),predict_logits)  # y dist. and x dist.
+        # loss = self.KL_loss(color_logits.log(),predict_logits)  # y dist. and ^y dist.
+        loss = self.KL_loss(predict_logits.log(),color_logits)  # ^y dist. and y dist.
         return loss.mean()
     
     def get_logits(self,x:torch.Tensor):
         '''given N embeddings, return their cloest color type in index form
         Also return GT index from color names
         '''
-        x = x / x.norm(p=2, dim=-1, keepdim=True)   # L2 norm for cosine similarity
+        x = F.normalize(x, dim=-1)  # L2 norm for cosine similarity
         all_similarity = torch.matmul(x,self.all_embeddings.T)  # B x classes
         # drop "Cyan" at index 9
         all_similarity = torch.cat((all_similarity[:,:9],all_similarity[:,10:]),dim=1)
@@ -114,7 +116,7 @@ class colorLossEnhance(nn.Module):
         return x[:, indices]
 
 if __name__ == '__main__':
-    criteria = colorLossEnhance(tau=0.3)
+    criteria = colorLossEnhance(tau=0.3,device='cpu')
     x = criteria.all_embeddings_list[2]  # blue
     input_tensor_cname = torch.tensor([1,2,3,4,5,6,7,8,9,10,11]).float().repeat(2,1).cuda()
     output_tensor_cname = criteria.interleave(input_tensor_cname)
